@@ -1,7 +1,10 @@
 /limine
 /build
+/build-test
+
 *.iso
 *.log
-compile_commands.json
 .cache
+
+compile_commands.json
 

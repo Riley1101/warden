@@ -14,9 +14,15 @@ HOST_CC := cc
 QEMU    := qemu-system-x86_64
 
 # ---- Paths ----------------------------------------------------------------
-BUILD  := build
+BUILD  := build$(if $(TEST),-test)
 ISO    := $(BUILD)/warden.iso
 KERNEL := $(BUILD)/kernel.elf
+
+HOST_BUILD := build-host
+HOST_CFLAGS := -std=gnu11 -g -O1 -Wall -Wextra -Werror \
+							 -fsanitize=address,undefined -fno-sanitize-recover=all \
+							 -fno-omit-frame-pointer \
+							 -Ikernel/include -Iabi/include -Itests/host
 
 # Files that prove dependencies were fetched (so `make deps` runs only once)
 DEPS_STAMP := limine/limine third_party/limine.h
@@ -28,7 +34,10 @@ KCFLAGS := -g -O2 -pipe -std=gnu11 -Wall -Wextra -Werror \
     -m64 -march=x86-64 -mno-80387 -mno-mmx -mno-sse -mno-sse2 \
     -mno-red-zone -mcmodel=kernel \
     -MMD -MP \
-    -Ikernel -Ikernel/include -Ithird_party
+    -Ikernel -Ikernel/include -Ithird_party \
+		-Iabi/include \
+    -Itests/kernel/include $(if $(TEST),-DWARDEN_TEST)
+		
 
 # ---- kernel link flags ------------------------------------------------------
 KLDFLAGS := -m elf_x86_64 -nostdlib -static \
@@ -36,6 +45,9 @@ KLDFLAGS := -m elf_x86_64 -nostdlib -static \
 
 # ---- kernel source files ---------------------------------------------------
 KSRC_C   := $(shell find kernel -name '*.c')
+ifdef TEST
+KSRC_C   += tests/tests.c $(shell find tests/kernel -name '*.c')
+endif
 
 # --- kernel assembly source files ---------------------------------------------------
 KSRC_ASM := $(shell find kernel -name '*.asm')
@@ -87,7 +99,7 @@ $(ISO): $(KERNEL) boot/limine.conf $(DEPS_STAMP)
 	./limine/limine bios-install $@
 
 
-# ---- Build / run / test (filled in during Steps 2-4) ------------------------
+# ---- Build / run / test  ------------------------
 .PHONY: run run-debug 
 run : $(ISO)                        ## Run the kernel in QEMU
 	$(QEMU) $(QEMUFLAGS)
@@ -95,19 +107,27 @@ run : $(ISO)                        ## Run the kernel in QEMU
 run-debug : $(ISO)                  ## Run the kernel in QEMU with GDB stub
 	$(QEMU) $(QEMUFLAGS) -s -S -d int,guest_errors -D $(BUILD)/qemu.log
  
- # ---- Tests (Steps 3-4) -----------------------------------------------------
+ # ---- Tests  -----------------------------------------------------
 .PHONY: test host-test
 test: host-test                      ## Run all tests
-	@echo "TODO (Step 3): headless QEMU boot test"
+	$(MAKE) TEST=1 iso
+	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-host-test:                           ## Unit tests on the host, with sanitizers
-	@echo "TODO (Step 4): host unit tests"
+HOST_TESTS := path
+$(HOST_BUILD)/test_path: kernel/path.c
+
+host-test: $(HOST_TESTS:%=$(HOST_BUILD)/test_%)   ## Unit tests on the host, with sanitizers
+	@for t in $^; do ./$$t || exit 1; done
+
+$(HOST_BUILD)/test_%: tests/host/include/test_%.c tests/host/include/check.h
+	@mkdir -p $(@D)
+	$(HOST_CC) $(HOST_CFLAGS) $(filter %.c,$^) -o $@
 
 # ---- Housekeeping ---------------------------------------------------------
 .PHONY: clean distclean compdb lsp help
 
 clean:                               ## Remove build output
-	rm -rf $(BUILD) iso_root *.log
+	rm -rf build build-test iso_root *.log
 
 distclean: clean                     ## Also remove fetched deps (keeps vendored limine.h)
 	rm -rf limine
