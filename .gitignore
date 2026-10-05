@@ -1,0 +1,7 @@
+/limine
+/build
+*.iso
+*.log
+compile_commands.json
+.cache
+
