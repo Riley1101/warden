@@ -1,6 +1,8 @@
+#include <gdt.h>
 #include <kprintf.h>
 #include <limine.h>
 #include <serial.h>
+#include <idt.h>
 
 #include <ktest.h>
 
@@ -22,6 +24,9 @@ int kmain() {
   if (!LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision)) {
     panic("unsupported Limine base revision");
   }
+
+  gdt_init();
+  idt_init();
 
   kprintf("warden: hello, World!\n");
   kprintf("warden: BOOT ok\n");

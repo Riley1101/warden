@@ -77,6 +77,10 @@ $(BUILD)/obj/%.o: %.c | $(DEPS_STAMP)
 	@mkdir -p $(@D)
 	$(CC) $(KCFLAGS) -c $< -o $@
 
+$(BUILD)/obj/%.asm.o: %.asm
+	@mkdir -p $(@D)
+	$(NASM) -f elf64 -g -F dwarf -MD $(@:.o=.d) -MP $< -o $@
+
 -include $(KOBJ:.o=.d)
 
 

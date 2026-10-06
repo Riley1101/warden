@@ -2,18 +2,27 @@
 
 #include <stdint.h>
 
+/**
+ * @brief A sink for formatted output.
+ */
 struct sink {
   char *buf;
   size_t size;
   size_t pos;
 };
 
+/**
+ * @brief Write a character to the sink.
+ */
 static void sink_putc(struct sink *s, char c) {
   if (s->pos + 1 < s->size)
     s->buf[s->pos] = c;
   s->pos++;
 }
 
+/**
+ * @brief Write `n` copies of `c` to the sink.
+ */
 static void sink_pad(struct sink *s, char c, int n) {
   while (n-- > 0)
     sink_putc(s, c);
