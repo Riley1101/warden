@@ -117,9 +117,10 @@ test: host-test                      ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-HOST_TESTS := path fmt
+HOST_TESTS := path fmt pmm
 $(HOST_BUILD)/test_path: kernel/path.c
 $(HOST_BUILD)/test_fmt: kernel/fmt.c
+$(HOST_BUILD)/test_pmm: kernel/pmm.c
 
 host-test: $(HOST_TESTS:%=$(HOST_BUILD)/test_%)   ## Unit tests on the host, with sanitizers
 	@for t in $^; do ./$$t || exit 1; done

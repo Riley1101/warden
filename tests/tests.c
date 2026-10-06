@@ -2,6 +2,7 @@
 #include "fmt.h"
 #include "ktest.h"
 #include "path.h"
+#include "pmm.h"
 #include "idt.h"
 
 static int streq(const char *a, const char *b) {
@@ -69,6 +70,35 @@ static int test_idt_frame(void) {
     return 0;
 }
 
+/* The real memory map: frames come back usable through the HHDM and
+ * every one of them is returned. */
+static int test_pmm_real_memory(void) {
+    size_t before = pmm_free_count();
+    KASSERT(before > 0);
+
+    uint64_t frames[16];
+    for (int i = 0; i < 16; i++) {
+        frames[i] = pmm_alloc();
+        KASSERT(frames[i] != 0);
+        KASSERT(frames[i] % PAGE_SIZE == 0);
+        uint64_t *p = phys_to_virt(frames[i]);
+        for (size_t j = 0; j < PAGE_SIZE / 8; j++)
+            p[j] = frames[i] ^ j;
+    }
+    for (int i = 0; i < 16; i++) {
+        uint64_t *p = phys_to_virt(frames[i]);
+        for (size_t j = 0; j < PAGE_SIZE / 8; j++)
+            KASSERT(p[j] == (frames[i] ^ j)); /* no two frames overlap */
+    }
+    KASSERT(pmm_free_count() == before - 16);
+
+    for (int i = 0; i < 16; i++)
+        KASSERT(pmm_free(frames[i]) == 0);
+    KASSERT(pmm_free(frames[0]) != 0); /* double free is caught */
+    KASSERT(pmm_free_count() == before);
+    return 0;
+}
+
 static int test_sanity(void) {
     KASSERT(1 + 1 == 2);
     KASSERT(2 * 2 == 4);
@@ -81,6 +111,7 @@ const struct ktest ktests[] = {
     {"fmt_in_kernel", test_fmt_in_kernel},
     {"idt_breakpoint", test_idt_breakpoint},
     {"idt_frame", test_idt_frame},
+    {"pmm_real_memory", test_pmm_real_memory},
 };
 const int ktests_count = sizeof(ktests) / sizeof(ktests[0]);
 
