@@ -1,7 +1,6 @@
-#include <io.h>
+#include <kprintf.h>
 #include <limine.h>
 #include <serial.h>
-#include <stdbool.h>
 
 #include <ktest.h>
 
@@ -16,31 +15,23 @@ __attribute((used, section(".limine_requests"))) static volatile uint64_t
 __attribute((used, section(".limine_requests_end"))) static volatile uint64_t
     limine_requests_ends[] = LIMINE_REQUESTS_END_MARKER;
 
-static __attribute__((noreturn)) void halt(void) {
-#ifdef WARDEN_TEST
-  ktest_fail();
-#endif /* ifdef WARDEN_TEST */
-  __asm__ __volatile__("hlt");
-  while (1) {
-    __asm__ __volatile__("hlt");
-  }
-}
-
 int kmain() {
 
   serial_init(COM1);
 
   if (!LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision)) {
-    serial_puts(COM1, "Unsupported Limine base revision\n");
-    halt();
+    panic("unsupported Limine base revision");
   }
 
-  serial_puts(COM1, "warden: hello, World!\n");
-  serial_puts(COM1, "warden: BOOT ok\n");
+  kprintf("warden: hello, World!\n");
+  kprintf("warden: BOOT ok\n");
 
 
 #ifdef WARDEN_TEST
   ktest_run_all();
 #endif /* ifdef WARDEN_TEST */
-  halt();
+  /* nothing to run yet: idle forever */
+  while (1) {
+    __asm__ __volatile__("hlt");
+  }
 }

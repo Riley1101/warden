@@ -1,4 +1,5 @@
 #ifdef WARDEN_TEST
+#include "fmt.h"
 #include "ktest.h"
 #include "path.h"
 
@@ -17,6 +18,14 @@ static int test_path_in_kernel(void) {
     return 0;
 }
 
+static int test_fmt_in_kernel(void) {
+    char out[64];
+    KASSERT(ksnprintf(out, sizeof out, "%d %s %016lx", -7, "ok",
+                      0xffffffff80000000UL) == 22);
+    KASSERT(streq(out, "-7 ok ffffffff80000000"));
+    return 0;
+}
+
 static int test_sanity(void) {
     KASSERT(1 + 1 == 2);
     KASSERT(2 * 2 == 4);
@@ -26,6 +35,7 @@ static int test_sanity(void) {
 const struct ktest ktests[] = {
     {"sanity", test_sanity},
     {"path_in_kernel", test_path_in_kernel},
+    {"fmt_in_kernel", test_fmt_in_kernel},
 };
 const int ktests_count = sizeof(ktests) / sizeof(ktests[0]);
 
