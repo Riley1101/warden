@@ -73,6 +73,10 @@ kernel : $(KERNEL)
 $(KERNEL): $(KOBJ) kernel/linker.ld
 	$(LD) $(KLDFLAGS) $(KOBJ) -o $@ 
 
+# kstring.c implements memset & co.: stop GCC turning its loops into calls
+# to the very functions being defined.
+$(BUILD)/obj/kernel/kstring.o: KCFLAGS += -fno-tree-loop-distribute-patterns
+
 $(BUILD)/obj/%.o: %.c | $(DEPS_STAMP)
 	@mkdir -p $(@D)
 	$(CC) $(KCFLAGS) -c $< -o $@
@@ -117,10 +121,12 @@ test: host-test                      ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-HOST_TESTS := path fmt pmm
+HOST_TESTS := path fmt pmm pt slab
 $(HOST_BUILD)/test_path: kernel/path.c
 $(HOST_BUILD)/test_fmt: kernel/fmt.c
 $(HOST_BUILD)/test_pmm: kernel/pmm.c
+$(HOST_BUILD)/test_pt: kernel/pt.c kernel/pmm.c
+$(HOST_BUILD)/test_slab: kernel/slab.c kernel/pmm.c
 
 host-test: $(HOST_TESTS:%=$(HOST_BUILD)/test_%)   ## Unit tests on the host, with sanitizers
 	@for t in $^; do ./$$t || exit 1; done

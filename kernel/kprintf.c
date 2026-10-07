@@ -3,6 +3,7 @@
 #include <fmt.h>
 #include <ktest.h>
 #include <serial.h>
+#include <slab.h>
 
 #define KPRINTF_BUF 256
 
@@ -33,4 +34,9 @@ void panic(const char *fmt, ...) {
   while (1) {
     __asm__ __volatile__("hlt");
   }
+}
+
+/* The heap found an invalid free: memory is already in a bad state. */
+void slab_bug(const char *what, const void *p) {
+  panic("heap: %s: %p", what, p);
 }

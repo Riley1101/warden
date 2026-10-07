@@ -1,9 +1,11 @@
 #include <gdt.h>
+#include <idt.h>
 #include <kprintf.h>
 #include <limine.h>
 #include <pmm.h>
 #include <serial.h>
-#include <idt.h>
+#include <slab.h>
+#include <vmm.h>
 
 #include <ktest.h>
 
@@ -15,42 +17,130 @@ __attribute((used, section(".limine_requests_start"))) static volatile uint64_t
 __attribute((used, section(".limine_requests"))) static volatile uint64_t
     limine_base_revision[] = LIMINE_BASE_REVISION(3);
 
-__attribute((used, section(".limine_requests"))) static volatile struct
-    limine_memmap_request memmap_request = {.id = LIMINE_MEMMAP_REQUEST_ID,
-                                            .revision = 0};
+__attribute((
+    used,
+    section(".limine_requests"))) static volatile struct limine_memmap_request
+    memmap_request = {.id = LIMINE_MEMMAP_REQUEST_ID, .revision = 0};
+
+__attribute((
+    used,
+    section(".limine_requests"))) static volatile struct limine_hhdm_request
+    hhdm_request = {.id = LIMINE_HHDM_REQUEST_ID, .revision = 0};
 
 __attribute((used, section(".limine_requests"))) static volatile struct
-    limine_hhdm_request hhdm_request = {.id = LIMINE_HHDM_REQUEST_ID,
-                                        .revision = 0};
+    limine_executable_address_request kaddr_request = {
+        .id = LIMINE_EXECUTABLE_ADDRESS_REQUEST_ID, .revision = 0};
 
 __attribute((used, section(".limine_requests_end"))) static volatile uint64_t
     limine_requests_ends[] = LIMINE_REQUESTS_END_MARKER;
 
-/* Hand Limine's usable memory to the PMM. Bootloader-reclaimable memory
- * (Limine's page tables, this very memmap) stays reserved until we run on
- * our own page tables. */
-static void pmm_setup(void) {
+/* Bootloader-reclaimable memory: Limine's page tables, its stack (which we
+ * boot on), and the memmap itself. Freed once we no longer use any of it. */
+static struct pmm_region reclaimable[PMM_MAX_REGIONS];
+
+static size_t nreclaimable;
+
+/* Memory types that get an HHDM mapping in our page tables. */
+static int hhdm_mapped(uint64_t type) {
+  switch (type) {
+  case LIMINE_MEMMAP_USABLE:
+  case LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE:
+  case LIMINE_MEMMAP_EXECUTABLE_AND_MODULES:
+  case LIMINE_MEMMAP_ACPI_RECLAIMABLE:
+  case LIMINE_MEMMAP_ACPI_NVS:
+  case LIMINE_MEMMAP_FRAMEBUFFER:
+  case LIMINE_MEMMAP_RESERVED_MAPPED:
+    return 1;
+  default:
+    return 0; /* reserved, bad memory */
+  }
+}
+
+/**
+ * Set up the PMM and VMM. The PMM is initialized with usable memory, and the VMM
+ * is initialized with the mapped memory regions, the physical base of the kernel,
+ */
+static void memory_setup(void) {
   struct limine_memmap_response *mm = memmap_request.response;
   struct limine_hhdm_response *hhdm = hhdm_request.response;
-  if (mm == NULL || hhdm == NULL)
-    panic("Limine did not provide a memory map / HHDM");
+  struct limine_executable_address_response *kaddr = kaddr_request.response;
+  if (mm == NULL || hhdm == NULL || kaddr == NULL)
+    panic("Limine did not provide memmap / HHDM / executable address");
 
   struct pmm_region usable[PMM_MAX_REGIONS];
-  size_t n = 0;
+  struct pmm_region mapped[PMM_MAX_REGIONS];
+  size_t nusable = 0, nmapped = 0;
   for (uint64_t i = 0; i < mm->entry_count; i++) {
     struct limine_memmap_entry *e = mm->entries[i];
-    if (e->type != LIMINE_MEMMAP_USABLE)
-      continue;
-    if (n == PMM_MAX_REGIONS)
-      panic("pmm: more than %d usable regions", PMM_MAX_REGIONS);
-    usable[n++] = (struct pmm_region){e->base, e->length};
+    struct pmm_region r = {e->base, e->length};
+    if (nusable == PMM_MAX_REGIONS || nmapped == PMM_MAX_REGIONS ||
+        nreclaimable == PMM_MAX_REGIONS)
+      panic("memmap: more than %d entries of one kind", PMM_MAX_REGIONS);
+    if (e->type == LIMINE_MEMMAP_USABLE)
+      usable[nusable++] = r;
+    if (e->type == LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE)
+      reclaimable[nreclaimable++] = r;
+    if (hhdm_mapped(e->type))
+      mapped[nmapped++] = r;
   }
 
-  int err = pmm_init(usable, n, hhdm->offset);
+  /**
+   * Initialize the PMM with usable memory. The PMM will manage physical memory
+   * and provide frames for the VMM to map. The HHDM offset is used to translate
+   * physical addresses to virtual addresses in the higher half.
+   */
+  /* Size the bitmap to also cover the reclaimable memory we free later. */
+  uint64_t top = 0;
+  for (size_t i = 0; i < nreclaimable; i++)
+    if (reclaimable[i].base + reclaimable[i].len > top)
+      top = reclaimable[i].base + reclaimable[i].len;
+
+  int err = pmm_init(usable, nusable, top, hhdm->offset);
   if (err != 0)
     panic("pmm_init failed: %d", err);
-  kprintf("pmm: %lu MiB free in %lu regions\n",
-          pmm_free_count() * PAGE_SIZE / (1024 * 1024), n);
+
+  /**
+   * Initialize the VMM with the mapped memory regions, the physical base of the
+   * kernel, and the virtual base of the kernel. The VMM will set up page tables
+   * and switch to the new address space.
+   */
+  vmm_init(mapped, nmapped, kaddr->physical_base, kaddr->virtual_base);
+  kmalloc_init();
+}
+
+/* Once we're off Limine's stack and page tables, its memory is ours. */
+static void reclaim_bootloader_memory(void) {
+  uint64_t bytes = 0;
+  for (size_t i = 0; i < nreclaimable; i++) {
+    int err = pmm_add_region(&reclaimable[i]);
+    if (err == 0)
+      bytes += reclaimable[i].len;
+    else
+      kprintf("pmm: skipped reclaimable %lx+%lx: %d\n", reclaimable[i].base,
+              reclaimable[i].len, err);
+  }
+  kprintf("pmm: reclaimed %lu KiB from the bootloader\n", bytes / 1024);
+}
+
+#define BOOT_STACK_SIZE (64 * 1024)
+static uint8_t boot_stack[BOOT_STACK_SIZE] __attribute__((aligned(16)));
+
+/* Runs on boot_stack, in our own address space. */
+static __attribute__((noreturn)) void kmain_late(void) {
+  /* From here on, Limine's responses point at freed memory: don't use them. */
+  reclaim_bootloader_memory();
+  kprintf("pmm: %lu MiB free\n", pmm_free_count() * PAGE_SIZE / (1024 * 1024));
+
+  kprintf("warden: hello, World!\n");
+  kprintf("warden: BOOT ok\n");
+
+#ifdef WARDEN_TEST
+  ktest_run_all();
+#endif /* ifdef WARDEN_TEST */
+  /* nothing to run yet: idle forever */
+  while (1) {
+    __asm__ __volatile__("hlt");
+  }
 }
 
 int kmain() {
@@ -63,17 +153,15 @@ int kmain() {
 
   gdt_init();
   idt_init();
-  pmm_setup();
+  memory_setup();
 
-  kprintf("warden: hello, World!\n");
-  kprintf("warden: BOOT ok\n");
-
-
-#ifdef WARDEN_TEST
-  ktest_run_all();
-#endif /* ifdef WARDEN_TEST */
-  /* nothing to run yet: idle forever */
-  while (1) {
-    __asm__ __volatile__("hlt");
-  }
+  /* Leave Limine's stack (bootloader-reclaimable memory) for our own. A call,
+   * not a jmp, so kmain_late starts with the stack aligned as the ABI wants. */
+  __asm__ __volatile__("mov %0, %%rsp\n\t"
+                       "xor %%ebp, %%ebp\n\t"
+                       "call *%1"
+                       :
+                       : "r"(boot_stack + sizeof boot_stack), "r"(kmain_late)
+                       : "memory");
+  __builtin_unreachable();
 }

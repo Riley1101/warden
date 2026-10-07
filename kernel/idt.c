@@ -1,5 +1,6 @@
 #include "idt.h"
 
+#include <cpu.h>
 #include <gdt.h>
 #include <kprintf.h>
 #include <stddef.h>
@@ -90,11 +91,6 @@ static const char *const exception_names[32] = {
     "#SX security",        "reserved",
 };
 
-static uint64_t read_cr2(void) {
-  uint64_t v;
-  __asm__ __volatile__("mov %%cr2, %0" : "=r"(v));
-  return v;
-}
 /**
  * Dump the contents of a trap frame to the console.
  * @param f The trap frame to dump.
