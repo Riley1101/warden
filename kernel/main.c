@@ -1,10 +1,13 @@
+#include <apic.h>
 #include <gdt.h>
 #include <idt.h>
 #include <kprintf.h>
 #include <limine.h>
 #include <pmm.h>
+#include <sched.h>
 #include <serial.h>
 #include <slab.h>
+#include <timer.h>
 #include <vmm.h>
 
 #include <ktest.h>
@@ -133,6 +136,11 @@ static __attribute__((noreturn)) void kmain_late(void) {
 
   kprintf("warden: hello, World!\n");
   kprintf("warden: BOOT ok\n");
+
+  apic_init();
+  sched_init();
+  timer_init();
+  __asm__ __volatile__("sti");
 
 #ifdef WARDEN_TEST
   ktest_run_all();

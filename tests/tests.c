@@ -9,6 +9,9 @@
 #include "kstring.h"
 #include "cpu.h"
 #include "idt.h"
+#include "apic.h"
+#include "timer.h"
+#include "sched.h"
 
 static int streq(const char *a, const char *b) {
     while (*a && *a == *b) {
@@ -324,6 +327,111 @@ static int test_kmalloc_churn(void) {
     return 0;
 }
 
+#define T_IPI_TEST 0x41
+
+static volatile int ipi_hits;
+
+static void on_ipi_test(struct trap_frame *f) {
+    (void)f;
+    ipi_hits++;
+    apic_eoi();
+}
+
+/* A self-IPI arrives: LAPIC mapped, IDT routing and EOI all work. Sent
+ * twice, since a missing EOI would block the second one. */
+static int test_apic_self_ipi(void) {
+    idt_register(T_IPI_TEST, on_ipi_test);
+    ipi_hits = 0;
+    for (int n = 1; n <= 2; n++) {
+        apic_self_ipi(T_IPI_TEST);
+        for (int spin = 0; ipi_hits < n && spin < 1000000; spin++)
+            __asm__ __volatile__("pause");
+        KASSERT(ipi_hits == n);
+    }
+    idt_register(T_IPI_TEST, 0);
+    return 0;
+}
+
+/* The periodic timer fires and keeps firing: each tick needs an EOI for
+ * the next one to arrive. Doesn't check the rate. */
+static int test_timer_ticks(void) {
+    uint64_t start = timer_ticks();
+    for (int spin = 0; timer_ticks() < start + 5 && spin < 1000; spin++)
+        __asm__ __volatile__("hlt"); /* each tick wakes us */
+    KASSERT(timer_ticks() >= start + 5);
+    return 0;
+}
+
+/* Wait (bounded) until only the test thread is left. */
+static int wait_threads_done(void) {
+    for (int spin = 0; sched_nthreads() > 1 && spin < 1000000; spin++)
+        thread_yield();
+    return sched_nthreads() == 1;
+}
+
+static volatile int spin_stop;
+static volatile uint64_t spin_count[2];
+
+static void spinner(void *arg) {
+    int i = (int)(uintptr_t)arg;
+    while (!spin_stop)
+        spin_count[i]++;
+}
+
+/* Two threads that never yield both make progress: the timer preempts. */
+static int test_sched_preempt(void) {
+    spin_stop = 0;
+    spin_count[0] = spin_count[1] = 0;
+    KASSERT(thread_create("spin0", spinner, (void *)0) != NULL);
+    KASSERT(thread_create("spin1", spinner, (void *)1) != NULL);
+    uint64_t start = timer_ticks();
+    for (int spin = 0; timer_ticks() < start + 4 * SCHED_QUANTUM &&
+                       spin < 1000; spin++)
+        __asm__ __volatile__("hlt");
+    spin_stop = 1;
+    KASSERT(wait_threads_done());
+    KASSERT(spin_count[0] > 0 && spin_count[1] > 0);
+    return 0;
+}
+
+static char order[16];
+static volatile int norder;
+
+static void appender(void *arg) {
+    for (int i = 0; i < 3; i++) {
+        order[norder++] = *(const char *)arg;
+        thread_yield();
+    }
+}
+
+/* Yield hands the CPU to the next thread in creation order. */
+static int test_sched_round_robin(void) {
+    norder = 0;
+    KASSERT(thread_create("A", appender, "A") != NULL);
+    KASSERT(thread_create("B", appender, "B") != NULL);
+    KASSERT(thread_create("C", appender, "C") != NULL);
+    KASSERT(wait_threads_done());
+    order[norder] = 0;
+    KASSERT(streq(order, "ABCABCABC"));
+    return 0;
+}
+
+static void nop_thread(void *arg) { (void)arg; }
+
+/* An exited thread's stack and struct go back to the allocator. */
+static int test_sched_reap(void) {
+    sched_reap();
+    kmalloc_shrink();
+    size_t before = pmm_free_count();
+    for (int i = 0; i < 8; i++)
+        KASSERT(thread_create("nop", nop_thread, NULL) != NULL);
+    KASSERT(wait_threads_done());
+    sched_reap();
+    kmalloc_shrink();
+    KASSERT(pmm_free_count() == before);
+    return 0;
+}
+
 static int test_sanity(void) {
     KASSERT(1 + 1 == 2);
     KASSERT(2 * 2 == 4);
@@ -346,6 +454,11 @@ const struct ktest ktests[] = {
     {"wx_rodata", test_wx_rodata},
     {"wx_data_noexec", test_wx_data_noexec},
     {"unmapped_faults", test_unmapped_faults},
+    {"apic_self_ipi", test_apic_self_ipi},
+    {"timer_ticks", test_timer_ticks},
+    {"sched_preempt", test_sched_preempt},
+    {"sched_round_robin", test_sched_round_robin},
+    {"sched_reap", test_sched_reap},
 };
 const int ktests_count = sizeof(ktests) / sizeof(ktests[0]);
 

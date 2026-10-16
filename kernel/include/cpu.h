@@ -56,3 +56,18 @@ static inline void cpuid(uint32_t leaf, uint32_t *a, uint32_t *b, uint32_t *c,
                        : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d)
                        : "a"(leaf), "c"(0));
 }
+
+#define RFLAGS_IF (1UL << 9)
+
+/* Disable interrupts, returning the old RFLAGS for irq_restore(). On one
+ * CPU this is the lock around anything an interrupt handler also touches. */
+static inline uint64_t irq_save(void) {
+  uint64_t flags;
+  __asm__ __volatile__("pushfq\n\tpop %0\n\tcli" : "=r"(flags) : : "memory");
+  return flags;
+}
+
+static inline void irq_restore(uint64_t flags) {
+  if (flags & RFLAGS_IF)
+    __asm__ __volatile__("sti" : : : "memory");
+}
