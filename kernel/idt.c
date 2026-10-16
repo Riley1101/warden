@@ -3,6 +3,7 @@
 #include <cpu.h>
 #include <gdt.h>
 #include <kprintf.h>
+#include <sched.h>
 #include <stddef.h>
 
 
@@ -114,6 +115,16 @@ void idt_dispatch(struct trap_frame *f) {
   if (fn != NULL) {
     fn(f);
     return;
+  }
+
+  /* A fault in ring 3 is the process's problem, not the kernel's. */
+  if (f->vector < 32 && (f->cs & 3) == 3) {
+    kprintf("%s: %s at rip %016lx", thread_current()->name,
+            exception_names[f->vector], f->rip);
+    if (f->vector == T_PAGE_FAULT)
+      kprintf(" cr2 %016lx", read_cr2());
+    kprintf(", killed\n");
+    thread_exit();
   }
 
   // If we get here, it means the interrupt is not handled by any registered handler.

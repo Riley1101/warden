@@ -41,7 +41,10 @@ void ktest_fail(void) { qemu_exit(QEMU_EXIT_FAIL); }
   X(sched_preempt)                                                             \
   X(sched_round_robin)                                                         \
   X(sched_reap)                                                                \
-  X(alloc_concurrent)
+  X(alloc_concurrent)                                                          \
+  X(user_map_kernel_half)                                                      \
+  X(user_preempt)                                                              \
+  X(user_fault_kills)
 
 #define KTEST_DECL(name) int test_##name(void);
 #define KTEST_ENTRY(name) {#name, test_##name},

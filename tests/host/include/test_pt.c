@@ -130,6 +130,27 @@ static void test_random(void) {
   }
 }
 
+/* pt_free_user returns every user frame and table, and leaves the kernel
+ * half's tables alone (other address spaces share them). */
+static void test_free_user(void) {
+  reset();
+  size_t before = pmm_free_count();
+  uint64_t pml4 = pt_new();
+  uint64_t kframe = pmm_alloc();
+  CHECK(pt_map(pml4, KBASE, kframe, PTE_W) == 0); /* +3 kernel tables */
+  size_t kernel_used = before - pmm_free_count();
+
+  const uint64_t user[] = {0x400000, 0x401000, 0x7ff000, 0x7fffffffe000UL};
+  for (int i = 0; i < 4; i++)
+    CHECK(pt_map(pml4, user[i], pmm_alloc(), PTE_W | PTE_U) == 0);
+  CHECK(pmm_free_count() < before - kernel_used);
+
+  pt_free_user(pml4);
+  /* back to just the kernel frame and its tables, minus the PML4 */
+  CHECK(pmm_free_count() == before - kernel_used + 1);
+  CHECK(pmm_free(kframe) == 0); /* still ours: not freed by pt_free_user */
+}
+
 int main(void) {
   mem = malloc(MEM_SIZE);
   test_map_lookup_unmap();
@@ -137,6 +158,7 @@ int main(void) {
   test_tables();
   test_oom();
   test_random();
+  test_free_user();
   free(mem);
   return CHECK_DONE();
 }

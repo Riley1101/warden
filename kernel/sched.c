@@ -1,11 +1,14 @@
 #include "sched.h"
 
 #include <cpu.h>
+#include <gdt.h>
 #include <kprintf.h>
 #include <slab.h>
+#include <vmm.h>
 
 void switch_to(uint64_t *old_rsp, uint64_t new_rsp); /* sched.asm */
 void thread_trampoline(void);
+__attribute__((noreturn)) void enter_user(uint64_t rip, uint64_t rsp);
 
 /* The boot thread runs on boot_stack; switch_to fills in its rsp. */
 static struct thread boot_thread;
@@ -42,6 +45,11 @@ static void schedule(void) {
     old->state = T_RUNNABLE;
   next->state = T_RUNNING;
   current = next;
+  /* An interrupt in ring 3 lands on rsp0. The boot thread never enters
+   * ring 3, so it has no stack of ours to point at. */
+  if (next->kstack != NULL)
+    tss_set_rsp0((uint64_t)(next->kstack + KSTACK_SIZE));
+  vmm_switch(next->pml4 ? next->pml4 : vmm_kernel_pml4());
   switch_to(&old->rsp, next->rsp);
 }
 
@@ -65,7 +73,9 @@ void thread_exit(void) {
   __builtin_unreachable();
 }
 
-struct thread *thread_create(const char *name, void (*fn)(void *), void *arg) {
+/* A thread that runs fn(arg), not yet on the run list. */
+static struct thread *new_thread(const char *name, void (*fn)(void *),
+                                 void *arg) {
   sched_reap();
 
   struct thread *t = kzalloc(sizeof *t);
@@ -94,7 +104,10 @@ struct thread *thread_create(const char *name, void (*fn)(void *), void *arg) {
   t->kstack = stack;
   t->state = T_RUNNABLE;
   t->name = name;
+  return t;
+}
 
+static void start_thread(struct thread *t) {
   /* Append: insert just before `current`, so it runs last in this round. */
   uint64_t flags = irq_save();
   t->tid = next_tid++;
@@ -104,7 +117,44 @@ struct thread *thread_create(const char *name, void (*fn)(void *), void *arg) {
   t->next = current;
   prev->next = t;
   irq_restore(flags);
+}
+
+struct thread *thread_create(const char *name, void (*fn)(void *), void *arg) {
+  struct thread *t = new_thread(name, fn, arg);
+  if (t != NULL)
+    start_thread(t);
   return t;
+}
+
+/* A user thread's first code, in the kernel: schedule() already loaded
+ * its address space and rsp0. */
+static void user_start(void *arg) {
+  (void)arg;
+  enter_user(current->user_rip, current->user_rsp);
+}
+
+struct thread *thread_create_user(const char *name, uint64_t pml4,
+                                  uint64_t rip, uint64_t rsp) {
+  struct thread *t = new_thread(name, user_start, NULL);
+  if (t == NULL) {
+    vmm_space_free(pml4);
+    return NULL;
+  }
+  t->pml4 = pml4;
+  t->user_rip = rip;
+  t->user_rsp = rsp;
+  start_thread(t);
+  return t;
+}
+
+/* A thread that isn't running is parked in switch_to, so marking it dead
+ * is enough: it never runs again, and sched_reap frees it. */
+void thread_kill(struct thread *t) {
+  if (t == current)
+    thread_exit();
+  uint64_t flags = irq_save();
+  t->state = T_DEAD;
+  irq_restore(flags);
 }
 
 int sched_nthreads(void) {
@@ -129,6 +179,8 @@ void sched_reap(void) {
   while (t != current) {
     if (t->state == T_DEAD) {
       prev->next = t->next;
+      if (t->pml4 != 0)
+        vmm_space_free(t->pml4); /* not in CR3: we are running, it isn't */
       kfree(t->kstack);
       kfree(t);
       t = prev->next;

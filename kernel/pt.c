@@ -86,3 +86,26 @@ uint64_t pt_lookup(uint64_t pml4, uint64_t virt) {
     return 0;
   return *e;
 }
+
+/* Free the table at `level` (2 = PDPT, 0 = PT), everything below it, and
+ * at level 0 the frames it maps. */
+static void free_table(uint64_t phys, int level) {
+  uint64_t *t = table(phys);
+  for (int i = 0; i < ENTRIES; i++) {
+    if (!(t[i] & PTE_P) || (t[i] & PTE_PS))
+      continue; /* we never create huge pages; don't guess what one owns */
+    if (level == 0)
+      pmm_free(t[i] & PTE_ADDR);
+    else
+      free_table(t[i] & PTE_ADDR, level - 1);
+  }
+  pmm_free(phys);
+}
+
+void pt_free_user(uint64_t pml4) {
+  uint64_t *t = table(pml4);
+  for (int i = 0; i < ENTRIES / 2; i++)
+    if (t[i] & PTE_P)
+      free_table(t[i] & PTE_ADDR, 2);
+  pmm_free(pml4);
+}

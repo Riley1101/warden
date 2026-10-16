@@ -46,3 +46,11 @@ uint64_t pt_unmap(uint64_t pml4, uint64_t virt);
 
 /* The leaf entry for `virt` (address | flags), or 0 if not mapped. */
 uint64_t pt_lookup(uint64_t pml4, uint64_t virt);
+
+/*
+ * Free the lower half of `pml4` (PML4 slots 0..255): every frame mapped
+ * there, every table, and then the PML4 itself. The higher half is shared
+ * kernel tables and is left alone. Assumes the address space owns every
+ * frame it maps (no sharing yet). Must not be the active CR3.
+ */
+void pt_free_user(uint64_t pml4);

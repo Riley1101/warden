@@ -103,3 +103,31 @@ uint64_t vmm_unmap(uint64_t virt) {
 }
 
 uint64_t vmm_kernel_pml4(void) { return kernel_pml4; }
+
+uint64_t vmm_space_new(void) {
+  uint64_t pml4 = pt_new();
+  if (pml4 == 0)
+    return 0;
+  uint64_t *top = phys_to_virt(pml4);
+  const uint64_t *kernel = phys_to_virt(kernel_pml4);
+  for (int i = 256; i < 512; i++)
+    top[i] = kernel[i];
+  return pml4;
+}
+
+int vmm_space_map(uint64_t pml4, uint64_t virt, uint64_t phys, uint64_t flags) {
+  if (virt >= USER_TOP)
+    return -EINVAL; /* a user page in the shared kernel half: everyone's */
+  return pt_map(pml4, virt, phys, flags | PTE_U);
+}
+
+void vmm_space_free(uint64_t pml4) {
+  if ((read_cr3() & PTE_ADDR) == pml4)
+    panic("vmm: freeing the active address space");
+  pt_free_user(pml4);
+}
+
+void vmm_switch(uint64_t pml4) {
+  if ((read_cr3() & PTE_ADDR) != pml4)
+    write_cr3(pml4);
+}
