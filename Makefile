@@ -46,7 +46,7 @@ KLDFLAGS := -m elf_x86_64 -nostdlib -static \
 # ---- kernel source files ---------------------------------------------------
 KSRC_C   := $(shell find kernel -name '*.c')
 ifdef TEST
-KSRC_C   += tests/tests.c $(shell find tests/kernel -name '*.c')
+KSRC_C   += $(shell find tests/kernel -name '*.c')
 endif
 
 # --- kernel assembly source files ---------------------------------------------------
@@ -124,9 +124,9 @@ test: host-test                      ## Run all tests
 HOST_TESTS := path fmt pmm pt slab
 $(HOST_BUILD)/test_path: kernel/path.c
 $(HOST_BUILD)/test_fmt: kernel/fmt.c
-$(HOST_BUILD)/test_pmm: kernel/pmm.c
-$(HOST_BUILD)/test_pt: kernel/pt.c kernel/pmm.c
-$(HOST_BUILD)/test_slab: kernel/slab.c kernel/pmm.c
+$(HOST_BUILD)/test_pmm: kernel/pmm.c tests/host/lock_stub.c
+$(HOST_BUILD)/test_pt: kernel/pt.c kernel/pmm.c tests/host/lock_stub.c
+$(HOST_BUILD)/test_slab: kernel/slab.c kernel/pmm.c tests/host/lock_stub.c
 
 host-test: $(HOST_TESTS:%=$(HOST_BUILD)/test_%)   ## Unit tests on the host, with sanitizers
 	@for t in $^; do ./$$t || exit 1; done

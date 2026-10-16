@@ -10,7 +10,7 @@ Four weeks. If something slips, protect in this order: escape suite > agent demo
 - [x] Physical memory management, virtual memory management, and paging.
 - [x] Slab allocator.
 - [x] GDT, IDT
-- [ ] APIC timer and round-robin scheduler.
+- [x] APIC timer and round-robin scheduler.
 - [ ] User mode: TSS, ring 3 entry, per-process address spaces.
 - [ ] Syscalls: single checkpoint `dispatch()` table. Every entry declares a capability;
       `dispatch` refuses entries without one.

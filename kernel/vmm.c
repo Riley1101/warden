@@ -3,6 +3,7 @@
 #include <abi/errno.h>
 #include <cpu.h>
 #include <kprintf.h>
+#include <lock.h>
 
 /* linker.ld */
 extern char __kernel_start[], __text_start[], __text_end[];
@@ -10,6 +11,9 @@ extern char __rodata_start[], __rodata_end[], __data_start[], __data_end[];
 
 static uint64_t kernel_pml4;
 static uint64_t kphys, kvirt; /* load addresses of the kernel image */
+
+/* Guards the kernel page tables after vmm_init. */
+static struct lock vmm_lock = LOCK_INIT("vmm");
 
 static uint64_t align_up(uint64_t x) { return (x + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1); }
 static uint64_t align_down(uint64_t x) { return x & ~(PAGE_SIZE - 1); }
@@ -83,13 +87,18 @@ void vmm_init(const struct pmm_region *hhdm, size_t n, uint64_t kernel_phys,
 
 int vmm_map(uint64_t virt, uint64_t phys, uint64_t flags) {
   /* A not-present entry is never cached in the TLB: no flush needed. */
-  return pt_map(kernel_pml4, virt, phys, flags | PTE_G);
+  lock_acquire(&vmm_lock);
+  int err = pt_map(kernel_pml4, virt, phys, flags | PTE_G);
+  lock_release(&vmm_lock);
+  return err;
 }
 
 uint64_t vmm_unmap(uint64_t virt) {
+  lock_acquire(&vmm_lock);
   uint64_t phys = pt_unmap(kernel_pml4, virt);
   if (phys != 0)
     invlpg(virt);
+  lock_release(&vmm_lock);
   return phys;
 }
 

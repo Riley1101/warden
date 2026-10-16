@@ -1,6 +1,11 @@
 #include "slab.h"
 
 #include <kstring.h>
+#include <lock.h>
+
+/* One lock for every cache and kmalloc. The public entry points take it;
+ * the static helpers assume it is held. Calls into the PMM nest inside it. */
+static struct lock slab_lock = LOCK_INIT("slab");
 
 /* ---- slab caches ---------------------------------------------------------- */
 
@@ -57,7 +62,7 @@ static struct page *new_slab(struct kmem_cache *c) {
   return pg;
 }
 
-void *kmem_cache_alloc(struct kmem_cache *c) {
+static void *cache_alloc(struct kmem_cache *c) {
   if (c->per_slab == 0)
     return NULL;
   struct page *pg = c->partial;
@@ -133,7 +138,7 @@ static void free_obj(struct page *pg, void *obj) {
   }
 }
 
-void kmem_cache_free(struct kmem_cache *c, void *obj) {
+static void cache_free(struct kmem_cache *c, void *obj) {
   if (obj == NULL)
     return;
   struct page *pg = check_obj(obj, c);
@@ -141,7 +146,7 @@ void kmem_cache_free(struct kmem_cache *c, void *obj) {
     free_obj(pg, obj);
 }
 
-size_t kmem_cache_shrink(struct kmem_cache *c) {
+static size_t cache_shrink(struct kmem_cache *c) {
   size_t released = 0;
   struct page **link = &c->partial;
   while (*link != NULL) {
@@ -176,14 +181,14 @@ void kmalloc_init(void) {
     kmem_cache_init(&classes[i], class_names[i], (size_t)SLAB_MIN_OBJ << i);
 }
 
-void *kmalloc(size_t size) {
+static void *do_kmalloc(size_t size) {
   if (size == 0)
     return NULL;
   if (size <= SLAB_MAX_OBJ) {
     int i = 0;
     while (((size_t)SLAB_MIN_OBJ << i) < size)
       i++;
-    return kmem_cache_alloc(&classes[i]);
+    return cache_alloc(&classes[i]);
   }
 
   /* Large: whole contiguous pages, recorded on the first page. */
@@ -206,7 +211,7 @@ void *kzalloc(size_t size) {
   return p;
 }
 
-void kfree(void *p) {
+static void do_kfree(void *p) {
   if (p == NULL)
     return;
   struct page *pg = virt_to_page(p);
@@ -236,9 +241,51 @@ size_t ksize(const void *p) {
   return 0;
 }
 
-size_t kmalloc_shrink(void) {
+static size_t do_kmalloc_shrink(void) {
   size_t released = 0;
   for (int i = 0; i < NCLASSES; i++)
-    released += kmem_cache_shrink(&classes[i]);
+    released += cache_shrink(&classes[i]);
+  return released;
+}
+
+/* ---- locked entry points -------------------------------------------------- */
+
+void *kmem_cache_alloc(struct kmem_cache *c) {
+  lock_acquire(&slab_lock);
+  void *obj = cache_alloc(c);
+  lock_release(&slab_lock);
+  return obj;
+}
+
+void kmem_cache_free(struct kmem_cache *c, void *obj) {
+  lock_acquire(&slab_lock);
+  cache_free(c, obj);
+  lock_release(&slab_lock);
+}
+
+size_t kmem_cache_shrink(struct kmem_cache *c) {
+  lock_acquire(&slab_lock);
+  size_t released = cache_shrink(c);
+  lock_release(&slab_lock);
+  return released;
+}
+
+void *kmalloc(size_t size) {
+  lock_acquire(&slab_lock);
+  void *p = do_kmalloc(size);
+  lock_release(&slab_lock);
+  return p;
+}
+
+void kfree(void *p) {
+  lock_acquire(&slab_lock);
+  do_kfree(p);
+  lock_release(&slab_lock);
+}
+
+size_t kmalloc_shrink(void) {
+  lock_acquire(&slab_lock);
+  size_t released = do_kmalloc_shrink();
+  lock_release(&slab_lock);
   return released;
 }

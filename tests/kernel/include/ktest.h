@@ -22,6 +22,17 @@ struct ktest {
         }                                                                   \
     } while (0)
 
+static inline int streq(const char *a, const char *b) {
+    while (*a && *a == *b) {
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
+/* An address in the kernel half that nothing else uses. */
+#define TEST_VIRT 0xffffc00000000000UL
+
 __attribute__((noreturn)) void ktest_run_all(void);
 __attribute__((noreturn)) void ktest_fail(void);
 

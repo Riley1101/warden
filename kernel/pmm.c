@@ -1,6 +1,7 @@
 #include "pmm.h"
 
 #include <abi/errno.h>
+#include <lock.h>
 
 #define BITS 64 /* frames per bitmap word */
 
@@ -16,6 +17,10 @@ static uint64_t meta_phys; /* bitmap, then the struct page array */
 static size_t meta_pages;
 static size_t nfree;
 static size_t hint; /* word to start the next search at (next-fit) */
+
+/* Guards everything above after pmm_init. The public entry points take it;
+ * the static helpers below assume it is held. */
+static struct lock pmm_lock = LOCK_INIT("pmm");
 
 static uint64_t align_up(uint64_t x) { return (x + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1); }
 static uint64_t align_down(uint64_t x) { return x & ~(PAGE_SIZE - 1); }
@@ -95,7 +100,7 @@ int pmm_init(const struct pmm_region *in, size_t n, uint64_t top_hint,
   return 0;
 }
 
-uint64_t pmm_alloc(void) {
+static uint64_t alloc_frame(void) {
   if (nfree == 0)
     return 0;
   for (size_t i = 0; i < nwords; i++) {
@@ -134,7 +139,7 @@ static int freeable(size_t f) {
   return managed(f) && test_bit(f); /* bit clear: double free */
 }
 
-int pmm_free(uint64_t phys) {
+static int free_frame(uint64_t phys) {
   if (phys % PAGE_SIZE != 0 || !freeable(phys / PAGE_SIZE))
     return -EINVAL;
   size_t f = phys / PAGE_SIZE;
@@ -144,11 +149,11 @@ int pmm_free(uint64_t phys) {
   return 0;
 }
 
-uint64_t pmm_alloc_pages(size_t n) {
+static uint64_t alloc_frames(size_t n) {
   if (n == 0 || n > nfree)
     return 0;
   if (n == 1)
-    return pmm_alloc();
+    return alloc_frame();
   size_t run = 0;
   for (size_t f = 1; f < nframes; f++) {
     run = test_bit(f) ? 0 : run + 1;
@@ -165,7 +170,7 @@ uint64_t pmm_alloc_pages(size_t n) {
   return 0;
 }
 
-int pmm_free_pages(uint64_t phys, size_t n) {
+static int free_frames(uint64_t phys, size_t n) {
   if (phys % PAGE_SIZE != 0 || n == 0)
     return -EINVAL;
   size_t first = phys / PAGE_SIZE;
@@ -173,7 +178,7 @@ int pmm_free_pages(uint64_t phys, size_t n) {
     if (!freeable(first + i))
       return -EINVAL;
   for (size_t i = 0; i < n; i++)
-    pmm_free((first + i) * PAGE_SIZE);
+    free_frame((first + i) * PAGE_SIZE);
   return 0;
 }
 
@@ -193,7 +198,7 @@ uint64_t page_to_phys(const struct page *pg) {
   return (uint64_t)(pg - pages) * PAGE_SIZE;
 }
 
-int pmm_add_region(const struct pmm_region *r) {
+static int add_region(const struct pmm_region *r) {
   uint64_t start = align_up(r->base);
   uint64_t end = align_down(r->base + r->len);
   if (end <= start)
@@ -216,3 +221,40 @@ int pmm_add_region(const struct pmm_region *r) {
 }
 
 size_t pmm_free_count(void) { return nfree; }
+
+/* ---- locked entry points -------------------------------------------------- */
+
+uint64_t pmm_alloc(void) {
+  lock_acquire(&pmm_lock);
+  uint64_t phys = alloc_frame();
+  lock_release(&pmm_lock);
+  return phys;
+}
+
+int pmm_free(uint64_t phys) {
+  lock_acquire(&pmm_lock);
+  int err = free_frame(phys);
+  lock_release(&pmm_lock);
+  return err;
+}
+
+uint64_t pmm_alloc_pages(size_t n) {
+  lock_acquire(&pmm_lock);
+  uint64_t phys = alloc_frames(n);
+  lock_release(&pmm_lock);
+  return phys;
+}
+
+int pmm_free_pages(uint64_t phys, size_t n) {
+  lock_acquire(&pmm_lock);
+  int err = free_frames(phys, n);
+  lock_release(&pmm_lock);
+  return err;
+}
+
+int pmm_add_region(const struct pmm_region *r) {
+  lock_acquire(&pmm_lock);
+  int err = add_region(r);
+  lock_release(&pmm_lock);
+  return err;
+}
