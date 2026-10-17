@@ -3,12 +3,12 @@
 #include <abi/errno.h>
 #include <abi/syscall.h>
 #include <abi/wait.h>
+#include <file.h>
 #include <idt.h>
 #include <kprintf.h>
 #include <path.h>
 #include <proc.h>
 #include <sched.h>
-#include <serial.h>
 #include <slab.h>
 #include <stddef.h>
 #include <usercopy.h>
@@ -58,10 +58,62 @@ static int64_t sys_fork(const uint64_t arg[6], struct trap_frame *f) {
   }
   struct trap_frame tf = *f;
   tf.rax = 0;
-  /* Interrupts are off (interrupt gate): the child can't run before we
-   * read its tid. */
+  /* Interrupts are off (interrupt gate): the child can't run before it has
+   * its files, nor die before we read its tid. */
   struct thread *child = thread_create_user(parent->name, pml4, &tf, parent);
-  return child != NULL ? child->tid : -ENOMEM;
+  if (child == NULL)
+    return -ENOMEM;
+  fd_copy(child->fd, parent->fd);
+  child->brk_base = parent->brk_base; /* the heap's pages were copied too */
+  child->brk = parent->brk;
+  return child->tid;
+}
+
+/* brk(addr): the heap's new end; the old one if it can't move there. */
+static int64_t sys_brk(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  return (int64_t)proc_brk(arg[0]);
+}
+
+static int64_t sys_read(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  struct file *file = fd_get(thread_current()->fd, (int)arg[0]);
+  if (file == NULL)
+    return -EBADF;
+  return file_read(file, (void *)arg[1], arg[2]);
+}
+
+static int64_t sys_write(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  struct file *file = fd_get(thread_current()->fd, (int)arg[0]);
+  if (file == NULL)
+    return -EBADF;
+  return file_write(file, (const void *)arg[1], arg[2]);
+}
+
+static int64_t sys_close(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  return fd_close(thread_current()->fd, (int)arg[0]);
+}
+
+static int64_t sys_pipe(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  struct file **table = thread_current()->fd;
+  int fds[2];
+  int err = fd_pipe(table, fds);
+  if (err != 0)
+    return err;
+  if (copy_to_user((void *)arg[0], fds, sizeof fds) != 0) {
+    fd_close(table, fds[0]);
+    fd_close(table, fds[1]);
+    return -EFAULT;
+  }
+  return 0;
+}
+
+static int64_t sys_dup2(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  return fd_dup2(thread_current()->fd, (int)arg[0], (int)arg[1]);
 }
 
 /* exec(path, argv): argv is a NULL-terminated array of strings, or NULL. */
@@ -132,30 +184,19 @@ static int64_t sys_kill(const uint64_t arg[6], struct trap_frame *f) {
   return 0;
 }
 
-static int64_t sys_debug_write(const uint64_t arg[6], struct trap_frame *f) {
-  (void)f;
-  const char *ubuf = (const char *)arg[0];
-  size_t len = arg[1];
-  char chunk[64];
-  for (size_t done = 0; done < len;) {
-    size_t n = len - done < sizeof chunk ? len - done : sizeof chunk;
-    if (copy_from_user(chunk, ubuf + done, n) != 0)
-      return -EFAULT;
-    for (size_t i = 0; i < n; i++)
-      serial_putc(COM1, chunk[i]);
-    done += n;
-  }
-  return len;
-}
-
 static const struct syscall table[] = {
     [SYS_exit] = {sys_exit, CAP_ANY, "exit"},
-    [SYS_debug_write] = {sys_debug_write, CAP_ANY, "debug_write"},
     [SYS_getpid] = {sys_getpid, CAP_ANY, "getpid"},
     [SYS_fork] = {sys_fork, CAP_ANY, "fork"},
     [SYS_exec] = {sys_exec, CAP_ANY, "exec"},
     [SYS_wait] = {sys_wait, CAP_ANY, "wait"},
     [SYS_kill] = {sys_kill, CAP_ANY, "kill"},
+    [SYS_read] = {sys_read, CAP_ANY, "read"},
+    [SYS_write] = {sys_write, CAP_ANY, "write"},
+    [SYS_close] = {sys_close, CAP_ANY, "close"},
+    [SYS_pipe] = {sys_pipe, CAP_ANY, "pipe"},
+    [SYS_dup2] = {sys_dup2, CAP_ANY, "dup2"},
+    [SYS_brk] = {sys_brk, CAP_ANY, "brk"},
 };
 
 #define NSYSCALLS (sizeof table / sizeof table[0])

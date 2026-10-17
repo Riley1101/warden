@@ -2,35 +2,37 @@
 
 /* Fork a child that dies by `how`, and return the status it died with. */
 static int child_status(void (*how)(void)) {
-  long pid = sys_fork();
+  pid_t pid = fork();
   if (pid == 0) {
     how();
-    sys_exit(0);
+    _exit(0);
   }
   int st;
-  return sys_wait(&st) == pid ? st : -1;
+  return wait(&st) == pid ? st : -1;
 }
 
 static void null_write(void) { *(volatile int *)0 = 1; }
 static void bad_opcode(void) { __asm__ __volatile__("ud2"); }
 
 int main(void) {
-  long pid = sys_fork();
+  pid_t pid = fork();
   if (pid == 0)
     for (;;)
       ; /* until killed */
 
-  if (sys_kill(pid) != 0)
+  if (kill(pid, SIGKILL) != 0)
     return 1;
   int st;
-  if (sys_wait(&st) != pid)
+  if (wait(&st) != pid)
     return 2;
   if (!WIFSIGNALED(st) || WTERMSIG(st) != SIGKILL)
     return 3;
-  if (sys_kill(pid) != -ESRCH) /* gone */
+  if (!FAILS(kill(pid, SIGKILL), ESRCH)) /* gone */
     return 4;
-  if (sys_kill(0) != -EPERM) /* the boot thread: not a process */
+  if (!FAILS(kill(0, SIGKILL), EPERM)) /* the boot thread: not a process */
     return 5;
+  if (!FAILS(kill(getpid(), SIGSEGV), EINVAL)) /* only SIGKILL exists */
+    return 8;
 
   /* A fault kills only the child, and says why. */
   st = child_status(null_write);

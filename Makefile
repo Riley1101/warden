@@ -88,24 +88,41 @@ $(BUILD)/obj/%.asm.o: %.asm
 -include $(KOBJ:.o=.d)
 
 
-# ---- User programs and the initramfs ----------------------------------------
+# ---- User programs, libc, and the initramfs ---------------------------------
 # No floating point in ring 3 (CR0.EM): -mgeneral-regs-only keeps gcc from
-# emitting SSE. Each program is crt0 + its C files, linked at 0x400000.
+# emitting SSE. -nostdinc keeps the host's headers out: only libc's, the
+# ABI's, and gcc's own freestanding ones (stddef.h, stdarg.h, stdint.h).
+# Each program is crt0 + its object + libc.a, linked at 0x400000.
+AR := $(TOOLCHAIN_PREFIX)ar
 USER_CFLAGS := -g -O2 -pipe -std=gnu11 -Wall -Wextra -Werror \
     -ffreestanding -fno-stack-protector -fno-pie -fno-pic \
     -m64 -march=x86-64 -mgeneral-regs-only \
-    -MMD -MP -Iabi/include -Iuserland/include
+    -nostdinc -isystem $(shell $(CC) -print-file-name=include) \
+    -MMD -MP -Ilibc/include -Iabi/include
 USER_LDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 \
     -T userland/user.ld
 USER_CRT0 := $(BUILD)/user/crt0.o
+LIBC      := $(BUILD)/user/libc.a
 
-$(USER_CRT0): userland/crt0.asm
+# libc shares the kernel's pure code: the formatter, and mem*/strlen.
+LIBC_SRC := $(wildcard libc/*.c) kernel/fmt.c kernel/kstring.c
+LIBC_OBJ := $(LIBC_SRC:%.c=$(BUILD)/user/obj/%.o)
+$(BUILD)/user/obj/kernel/%.o $(BUILD)/user/obj/libc/stdio.o: \
+    USER_CFLAGS += -Ikernel/include
+$(BUILD)/user/obj/kernel/kstring.o: \
+    USER_CFLAGS += -fno-tree-loop-distribute-patterns
+
+$(USER_CRT0): libc/crt0.asm
 	@mkdir -p $(@D)
 	$(NASM) -f elf64 -g -F dwarf $< -o $@
 
 $(BUILD)/user/obj/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(LIBC): $(LIBC_OBJ)
+	rm -f $@
+	$(AR) rcs $@ $^
 
 -include $(shell find $(BUILD)/user -name '*.d' 2>/dev/null)
 
@@ -118,9 +135,10 @@ TEST_PROGS   := $(patsubst tests/user/%.c,%,$(wildcard tests/user/*.c))
 INITRD_FILES += $(TEST_PROGS:%=$(INITRD_DIR)/test/%) $(INITRD_DIR)/test/notelf
 endif
 
-$(INITRD_DIR)/test/%: $(BUILD)/user/obj/tests/user/%.o $(USER_CRT0) userland/user.ld
+$(INITRD_DIR)/test/%: $(BUILD)/user/obj/tests/user/%.o $(USER_CRT0) $(LIBC) \
+    userland/user.ld
 	@mkdir -p $(@D)
-	$(LD) $(USER_LDFLAGS) $(USER_CRT0) $< -o $@
+	$(LD) $(USER_LDFLAGS) $(USER_CRT0) $< $(LIBC) -o $@
 
 $(INITRD_DIR)/test/notelf: tests/user/notelf
 	@mkdir -p $(@D)
@@ -165,7 +183,7 @@ test: host-test                      ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-HOST_TESTS := path fmt pmm pt slab elf tar
+HOST_TESTS := path fmt pmm pt slab elf tar malloc
 $(HOST_BUILD)/test_path: kernel/path.c
 $(HOST_BUILD)/test_fmt: kernel/fmt.c
 $(HOST_BUILD)/test_pmm: kernel/pmm.c tests/host/lock_stub.c
@@ -173,6 +191,9 @@ $(HOST_BUILD)/test_pt: kernel/pt.c kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_slab: kernel/slab.c kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_elf: kernel/elf.c
 $(HOST_BUILD)/test_tar: kernel/tar.c
+$(HOST_BUILD)/test_malloc: libc/malloc.c tests/host/libc_rename.h
+$(HOST_BUILD)/test_malloc: HOST_CFLAGS += -include tests/host/libc_rename.h \
+    -Wno-alloc-size -Wno-alloc-size-larger-than # the tests ask for absurd sizes
 
 host-test: $(HOST_TESTS:%=$(HOST_BUILD)/test_%)   ## Unit tests on the host, with sanitizers
 	@for t in $^; do ./$$t || exit 1; done

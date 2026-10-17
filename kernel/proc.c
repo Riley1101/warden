@@ -3,6 +3,7 @@
 #include <abi/errno.h>
 #include <cpu.h>
 #include <elf.h>
+#include <file.h>
 #include <kstring.h>
 #include <pmm.h>
 #include <sched.h>
@@ -12,6 +13,10 @@
 
 static const void *initrd;
 static size_t initrd_len;
+
+static uint64_t page_up(uint64_t x) {
+  return (x + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+}
 
 void proc_init(const void *base, size_t len) {
   initrd = base;
@@ -96,8 +101,14 @@ static int load_stack(uint64_t pml4, const char *const *argv, int argc,
 }
 
 /* `path` with `argv`, in a new address space. Sets *pml4 and the entry. */
+/* A program loaded into a new address space, not yet running. */
+struct loaded {
+  uint64_t pml4, rip, rsp;
+  uint64_t brk; /* the heap starts empty at the first page after the image */
+};
+
 static int load(const char *path, const char *const *argv, int argc,
-                uint64_t *pml4_out, uint64_t *rip, uint64_t *rsp) {
+                struct loaded *out) {
   const void *img;
   size_t len;
   if (tar_find(initrd, initrd_len, path, &img, &len) != 0)
@@ -111,13 +122,19 @@ static int load(const char *path, const char *const *argv, int argc,
     return -ENOMEM;
   int err = load_segments(pml4, img, &elf);
   if (err == 0)
-    err = load_stack(pml4, argv, argc, rsp);
+    err = load_stack(pml4, argv, argc, &out->rsp);
   if (err != 0) {
     vmm_space_free(pml4);
     return err;
   }
-  *pml4_out = pml4;
-  *rip = elf.entry;
+  out->pml4 = pml4;
+  out->rip = elf.entry;
+  out->brk = 0;
+  for (int i = 0; i < elf.nseg; i++) {
+    uint64_t end = page_up(elf.seg[i].vaddr + elf.seg[i].memsz);
+    if (end > out->brk)
+      out->brk = end;
+  }
   return 0;
 }
 
@@ -132,32 +149,58 @@ static const char *basename(const char *path) {
 
 int proc_spawn(const char *path, const char *const *argv, int argc,
                struct thread *parent) {
-  uint64_t pml4, rip, rsp;
-  int err = load(path, argv, argc, &pml4, &rip, &rsp);
+  struct loaded l;
+  int err = load(path, argv, argc, &l);
   if (err != 0)
     return err;
   struct trap_frame tf;
-  trap_frame_user(&tf, rip, rsp);
-  /* Read the pid before the child can run, die and be freed. */
+  trap_frame_user(&tf, l.rip, l.rsp);
+  /* Give it its files and heap, and read its pid, before it can run, die
+   * and be freed. */
   uint64_t flags = irq_save();
-  struct thread *t = thread_create_user(basename(path), pml4, &tf, parent);
-  int pid = t != NULL ? t->tid : -ENOMEM;
+  struct thread *t = thread_create_user(basename(path), l.pml4, &tf, parent);
+  int pid = -ENOMEM;
+  if (t != NULL) {
+    fd_init_console(t->fd);
+    t->brk_base = t->brk = l.brk;
+    pid = t->tid;
+  }
   irq_restore(flags);
   return pid;
 }
 
 int proc_exec(struct trap_frame *f, const char *path, const char *const *argv,
               int argc) {
-  uint64_t pml4, rip, rsp;
-  int err = load(path, argv, argc, &pml4, &rip, &rsp);
+  struct loaded l;
+  int err = load(path, argv, argc, &l);
   if (err != 0)
     return err;
   struct thread *t = thread_current();
   uint64_t old = t->pml4;
-  t->pml4 = pml4;
-  vmm_switch(pml4);
-  vmm_space_free(old); /* out of CR3 now */
+  t->pml4 = l.pml4;
+  vmm_switch(l.pml4);
+  vmm_space_free(old); /* out of CR3 now; the old heap goes with it */
+  t->brk_base = t->brk = l.brk;
   thread_set_name(t, basename(path));
-  trap_frame_user(f, rip, rsp);
+  trap_frame_user(f, l.rip, l.rsp);
   return 0;
+}
+
+uint64_t proc_brk(uint64_t addr) {
+  struct thread *t = thread_current();
+  if (addr < t->brk_base || addr - t->brk_base > HEAP_MAX)
+    return t->brk; /* includes brk(0): just asking */
+
+  uint64_t old_top = page_up(t->brk), new_top = page_up(addr);
+  for (uint64_t v = old_top; v < new_top; v += PAGE_SIZE) {
+    if (map_zeroed(t->pml4, v, PTE_W | PTE_NX) != 0) {
+      for (uint64_t u = old_top; u < v; u += PAGE_SIZE) /* undo */
+        pmm_free(vmm_space_unmap(t->pml4, u));
+      return t->brk;
+    }
+  }
+  for (uint64_t v = new_top; v < old_top; v += PAGE_SIZE)
+    pmm_free(vmm_space_unmap(t->pml4, v));
+  t->brk = addr;
+  return addr;
 }

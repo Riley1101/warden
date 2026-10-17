@@ -2,6 +2,7 @@
 
 #include <abi/errno.h>
 #include <cpu.h>
+#include <file.h>
 #include <gdt.h>
 #include <kprintf.h>
 #include <kstring.h>
@@ -36,19 +37,32 @@ void sched_init(void) {
 
 struct thread *thread_current(void) { return current; }
 
+/* Set while schedule() halts for want of a runnable thread: the timer must
+ * not call back into it. */
+static int idling;
+
 /* Round robin: the next runnable thread after `current` in the list, or
  * stay on `current`. Interrupts must be off. */
 static void schedule(void) {
   struct thread *old = current;
-  struct thread *next = old->next;
-  while (next != old && next->state != T_RUNNABLE)
-    next = next->next;
+  struct thread *next;
+  for (;;) {
+    next = old->next;
+    while (next != old && next->state != T_RUNNABLE)
+      next = next->next;
+    if (next != old || old->state == T_RUNNING || old->state == T_RUNNABLE)
+      break;
+    if (old->state == T_DEAD || old->state == T_ZOMBIE)
+      panic("sched: last thread exited"); /* boot never exits */
+    /* Everyone sleeps: halt, with interrupts on, until one of them is
+     * woken (by an interrupt handler), then look again. */
+    idling = 1;
+    __asm__ __volatile__("sti\n\thlt\n\tcli" : : : "memory");
+    idling = 0;
+  }
 
   quantum = SCHED_QUANTUM;
   if (next == old) {
-    if (old->state == T_DEAD || old->state == T_ZOMBIE)
-      panic("sched: last thread exited"); /* boot never exits */
-    /* Nothing else can run: a waiter gets to look again. */
     old->state = T_RUNNING;
     return;
   }
@@ -66,7 +80,7 @@ static void schedule(void) {
 }
 
 void sched_tick(void) {
-  if (current == NULL)
+  if (current == NULL || idling)
     return;
   if (--quantum <= 0)
     schedule();
@@ -78,12 +92,31 @@ void thread_yield(void) {
   irq_restore(flags);
 }
 
+void thread_sleep(void *chan) {
+  current->state = T_SLEEPING;
+  current->wchan = chan;
+  schedule();
+}
+
+void thread_wakeup(void *chan) {
+  struct thread *t = current;
+  do {
+    if (t->state == T_SLEEPING && t->wchan == chan) {
+      t->state = T_RUNNABLE;
+      t->wchan = NULL;
+    }
+    t = t->next;
+  } while (t != current);
+}
+
 /*
- * `t` is dead with `status`. Its children are orphaned (a zombie child is
- * freed: nobody will collect it now). With a parent it stays a zombie,
- * and wakes the parent if it is waiting. Interrupts must be off.
+ * `t` is dead with `status`. Its files are closed (a pipe's other end sees
+ * EOF), its children orphaned (a zombie child is freed: nobody will
+ * collect it now). With a parent it stays a zombie, and wakes the parent
+ * if it is waiting. Interrupts must be off.
  */
 static void die(struct thread *t, int status) {
+  fd_close_all(t->fd);
   for (struct thread *c = t->next; c != t; c = c->next) {
     if (c->parent != t)
       continue;
@@ -97,8 +130,7 @@ static void die(struct thread *t, int status) {
     return;
   }
   t->state = T_ZOMBIE;
-  if (t->parent->state == T_WAITING)
-    t->parent->state = T_RUNNABLE;
+  thread_wakeup(t->parent); /* in thread_wait */
 }
 
 void thread_exit(int status) {
@@ -240,8 +272,7 @@ int thread_wait(int *status) {
       irq_restore(flags);
       return -ECHILD;
     }
-    current->state = T_WAITING; /* die() of a child makes us runnable */
-    schedule();
+    thread_sleep(current); /* a child's die() wakes us */
   }
 }
 

@@ -4,26 +4,26 @@ int main(void) {
   char *args[] = {"args", "a", "bc", NULL};
 
   /* Failures return, and leave this program running. */
-  if (sys_exec("/test/nope", args) != -ENOENT)
+  if (!FAILS(execv("/test/nope", args), ENOENT))
     return 1;
-  if (sys_exec("/test/notelf", NULL) != -ENOEXEC)
+  if (!FAILS(execv("/test/notelf", NULL), ENOEXEC))
     return 2;
-  if (sys_exec(NULL, NULL) != -EFAULT)
+  if (!FAILS(execv(NULL, NULL), EFAULT))
     return 3;
   char **volatile bad_argv = (char **)8; /* hidden from gcc's checks */
-  if (sys_exec("/test/args", bad_argv) != -EFAULT)
+  if (!FAILS(execv("/test/args", bad_argv), EFAULT))
     return 4;
-  if (sys_exec("test/args", NULL) != -ENOENT) /* relative */
+  if (!FAILS(execv("test/args", NULL), ENOENT)) /* relative */
     return 5;
 
   /* A child becomes /test/args (path normalized on the way). */
-  long pid = sys_fork();
+  pid_t pid = fork();
   if (pid == 0) {
-    sys_exec("/test/./args", args);
-    sys_exit(99);
+    execv("/test/./args", args);
+    _exit(99);
   }
   int st;
-  if (sys_wait(&st) != pid)
+  if (wait(&st) != pid)
     return 6;
   if (!WIFEXITED(st))
     return 7;
@@ -31,6 +31,6 @@ int main(void) {
     return 10 + WEXITSTATUS(st); /* args' own failing step */
 
   /* And this process becomes /test/hello: whoever waits sees its 7. */
-  sys_exec("/test/hello", NULL);
+  execv("/test/hello", NULL);
   return 8;
 }

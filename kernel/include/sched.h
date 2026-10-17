@@ -1,5 +1,6 @@
 #pragma once
 
+#include <file.h>
 #include <idt.h>
 #include <stdint.h>
 
@@ -19,7 +20,7 @@
 enum thread_state {
   T_RUNNABLE,
   T_RUNNING,
-  T_WAITING, /* in thread_wait, until a child dies */
+  T_SLEEPING, /* in thread_sleep, until thread_wakeup(wchan) */
   T_ZOMBIE,  /* dead, status not yet collected by the parent */
   T_DEAD,    /* sched_reap frees it */
 };
@@ -31,11 +32,14 @@ struct thread {
   int tid;
   char name[THREAD_NAME];
   struct thread *next; /* circular run list */
+  void *wchan;         /* what it sleeps on, while T_SLEEPING */
   /* User threads only (pml4 == 0 for kernel threads, which run in the
    * kernel address space): */
   uint64_t pml4;          /* address space, freed with the thread */
+  uint64_t brk_base, brk; /* heap: [brk_base, brk), whole pages mapped */
   struct thread *parent;  /* who may wait for it; NULL: nobody */
   int exit_status;        /* abi/wait.h encoding, once it is a zombie */
+  struct file *fd[NFD];   /* open files; closed when it dies */
 };
 
 /* Make the code running now (kmain_late, on boot_stack) thread 0. Call
@@ -70,6 +74,16 @@ void thread_kill(struct thread *t, int status);
  * or -ECHILD if the caller has no children. Blocks while they all live.
  */
 int thread_wait(int *status);
+
+/*
+ * Block until thread_wakeup(chan). Interrupts must be off, and stay off
+ * from checking the condition slept on to this call, so no wakeup is
+ * missed (one CPU). Wakeups can be spurious: check the condition again.
+ */
+void thread_sleep(void *chan);
+
+/* Make every thread sleeping on `chan` runnable. Interrupts must be off. */
+void thread_wakeup(void *chan);
 
 /* Give up the CPU to the next runnable thread. */
 void thread_yield(void);

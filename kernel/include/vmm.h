@@ -59,6 +59,10 @@ int vmm_space_write(uint64_t pml4, uint64_t virt, const void *src, size_t n);
  * -ENOMEM with `dst` partly filled: free it. */
 int vmm_space_copy(uint64_t dst, uint64_t src);
 
+/* Remove the user page at `virt` from `pml4` (flushing it if `pml4` is in
+ * CR3). Returns its frame, for the caller to free; 0 if nothing was there. */
+uint64_t vmm_space_unmap(uint64_t pml4, uint64_t virt);
+
 /* Free an address space and every frame it maps. Not while it is in CR3. */
 void vmm_space_free(uint64_t pml4);
 

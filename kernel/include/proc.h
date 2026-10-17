@@ -15,6 +15,7 @@
 #define USTACK_TOP   0x00007ffffffff000UL
 #define USTACK_PAGES 16
 #define PROC_MAX_ARGS 32
+#define HEAP_MAX     (256UL << 20) /* how far brk may move past its start */
 
 /* The initramfs (a ustar archive), from the bootloader. */
 void proc_init(const void *initrd, size_t len);
@@ -32,3 +33,11 @@ int proc_spawn(const char *path, const char *const *argv, int argc,
  */
 int proc_exec(struct trap_frame *f, const char *path, const char *const *argv,
               int argc);
+
+/*
+ * Move the caller's heap end to `addr`, mapping fresh zeroed pages or
+ * freeing them. Returns the new end, or the unchanged one if `addr` is
+ * below the heap's start, more than HEAP_MAX past it, or memory ran out
+ * (so brk(0) asks where it is).
+ */
+uint64_t proc_brk(uint64_t addr);

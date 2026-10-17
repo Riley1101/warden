@@ -141,6 +141,15 @@ int vmm_space_write(uint64_t pml4, uint64_t virt, const void *src, size_t n) {
 
 int vmm_space_copy(uint64_t dst, uint64_t src) { return pt_copy_user(dst, src); }
 
+uint64_t vmm_space_unmap(uint64_t pml4, uint64_t virt) {
+  if (virt >= USER_TOP)
+    return 0;
+  uint64_t phys = pt_unmap(pml4, virt);
+  if (phys != 0 && (read_cr3() & PTE_ADDR) == pml4)
+    invlpg(virt);
+  return phys;
+}
+
 void vmm_space_free(uint64_t pml4) {
   if ((read_cr3() & PTE_ADDR) == pml4)
     panic("vmm: freeing the active address space");

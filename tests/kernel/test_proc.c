@@ -72,6 +72,28 @@ int test_proc_exec(void) {
     return 0;
 }
 
+int test_proc_pipe(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/pipe", "pipe");
+    return 0;
+}
+
+int test_proc_dup2(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/dup2", "dup2");
+    return 0;
+}
+
+/* Programs start with 0, 1, 2 on the console: echo's line shows up. */
+int test_proc_console(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/echo", "echo", "console", "ok");
+    RUN_EXPECT(W_EXITCODE(0), "/test/count", "count"); /* stdin: EOF */
+    return 0;
+}
+
+int test_proc_libc(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/libc", "libc");
+    return 0;
+}
+
 int test_proc_spawn_errors(void) {
     struct thread *me = thread_current();
     size_t before = free_frames();

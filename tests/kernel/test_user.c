@@ -1,5 +1,6 @@
 #ifdef WARDEN_TEST
 #include "ktest.h"
+#include "cpu.h"
 #include "kstring.h"
 #include "pmm.h"
 #include "sched.h"
@@ -38,7 +39,12 @@ static struct thread *run_user(const char *name, const uint8_t *code,
     user_stack_frame = stack;
     struct trap_frame tf;
     trap_frame_user(&tf, USER_CODE, USER_STACK_TOP);
-    return thread_create_user(name, pml4, &tf, NULL);
+    uint64_t flags = irq_save(); /* its files, before it can run */
+    struct thread *t = thread_create_user(name, pml4, &tf, NULL);
+    if (t != NULL)
+        fd_init_console(t->fd);
+    irq_restore(flags);
+    return t;
 }
 
 static int wait_threads_done(void) {
@@ -190,34 +196,35 @@ int test_syscall_enosys(void) {
     return 0;
 }
 
-/*   debug_write(buf, len) with both as 64-bit immediates; patched per case */
-#define DW_BUF_AT 7  /* offset of buf's imm64 */
-#define DW_LEN_AT 17 /* offset of len's imm64 */
-static const uint8_t prog_debug_write[] = {
-    MOV_EAX(SYS_debug_write),
-    0x48, 0xbf, 0, 0, 0, 0, 0, 0, 0, 0, /* mov rdi, buf */
-    0x48, 0xbe, 0, 0, 0, 0, 0, 0, 0, 0, /* mov rsi, len */
+/*   write(1, buf, len) with buf and len as 64-bit immediates, patched per
+ *   case; stdout is the console */
+#define W_BUF_AT 12 /* offset of buf's imm64 */
+#define W_LEN_AT 22 /* offset of len's imm64 */
+static const uint8_t prog_write[] = {
+    MOV_EAX(SYS_write),
+    0xbf, 0x01, 0x00, 0x00, 0x00,       /* mov edi, 1 */
+    0x48, 0xbe, 0, 0, 0, 0, 0, 0, 0, 0, /* mov rsi, buf */
+    0x48, 0xba, 0, 0, 0, 0, 0, 0, 0, 0, /* mov rdx, len */
     SYSCALL, SAVE_RAX, EXIT, HANG,
     'o', 'k', '\n', /* the message, at the end of the code page's code */
 };
-#define DW_MSG_AT (sizeof prog_debug_write - 3)
+#define W_MSG_AT (sizeof prog_write - 3)
 
-/* debug_write(buf, len) from ring 3; what it returned. */
-static int64_t debug_write_returns(uint64_t buf, uint64_t len) {
-    uint8_t code[sizeof prog_debug_write];
-    memcpy(code, prog_debug_write, sizeof code);
-    memcpy(code + DW_BUF_AT, &buf, 8);
-    memcpy(code + DW_LEN_AT, &len, 8);
-    if (run_user("debug_write", code, sizeof code) == NULL ||
-        !wait_threads_done())
+/* write(1, buf, len) from ring 3; what it returned. */
+static int64_t write_returns(uint64_t buf, uint64_t len) {
+    uint8_t code[sizeof prog_write];
+    memcpy(code, prog_write, sizeof code);
+    memcpy(code + W_BUF_AT, &buf, 8);
+    memcpy(code + W_LEN_AT, &len, 8);
+    if (run_user("write", code, sizeof code) == NULL || !wait_threads_done())
         return 1; /* never a valid result here */
     return saved_rax();
 }
 
 /* Prints "ok\n" from a user buffer. */
-int test_syscall_debug_write(void) {
-    KASSERT(debug_write_returns(USER_CODE + DW_MSG_AT, 3) == 3);
-    KASSERT(debug_write_returns(USER_CODE, 0) == 0);
+int test_syscall_write(void) {
+    KASSERT(write_returns(USER_CODE + W_MSG_AT, 3) == 3);
+    KASSERT(write_returns(USER_CODE, 0) == 0);
     return 0;
 }
 
@@ -225,11 +232,11 @@ int test_syscall_debug_write(void) {
  * kernel never dereferences them for real. */
 int test_syscall_efault(void) {
     size_t before = free_frames();
-    KASSERT(debug_write_returns(0, 1) == -EFAULT);           /* unmapped */
-    KASSERT(debug_write_returns(0xffffffff80000000UL, 1) == -EFAULT); /* kernel */
-    KASSERT(debug_write_returns(USER_TOP - 1, 2) == -EFAULT); /* past top */
+    KASSERT(write_returns(0, 1) == -EFAULT);                    /* unmapped */
+    KASSERT(write_returns(0xffffffff80000000UL, 1) == -EFAULT); /* kernel */
+    KASSERT(write_returns(USER_TOP - 1, 2) == -EFAULT);         /* past top */
     /* starts mapped, faults partway (the page after the code is unmapped) */
-    KASSERT(debug_write_returns(USER_CODE + PAGE_SIZE - 2, 4) == -EFAULT);
+    KASSERT(write_returns(USER_CODE + PAGE_SIZE - 2, 4) == -EFAULT);
     KASSERT(free_frames() == before);
     return 0;
 }

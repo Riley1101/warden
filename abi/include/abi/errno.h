@@ -13,5 +13,7 @@
 #define ENOTDIR 20      // Not a directory
 #define EISDIR 21       // Is a directory
 #define EINVAL 22       // Invalid argument
+#define EMFILE 24       // Too many open files
+#define EPIPE 32        // Broken pipe (no reader left)
 #define ENAMETOOLONG 36 // File name too long
 #define ENOSYS 38       // Function not implemented
