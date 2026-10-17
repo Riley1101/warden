@@ -31,6 +31,9 @@ idt_stub_%1:
 
 ; TODO(user mode): swapgs on entry/exit when coming from ring 3.
 idt_common:
+    ; Ring 3 can set RFLAGS.AC and the CPU keeps it on entry, which would
+    ; switch SMAP off for the whole handler. iretq restores the old value.
+    clac
     push rax
     push rbx
     push rcx
@@ -54,6 +57,10 @@ idt_common:
     mov rdi, rsp
     call idt_dispatch
 
+; A new user thread starts here (sched.c): its stack holds just a
+; trap_frame, which this pops into the registers and irets to.
+global trap_return
+trap_return:
     pop r15
     pop r14
     pop r13

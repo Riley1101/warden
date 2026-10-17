@@ -19,10 +19,14 @@ struct trap_frame {
 _Static_assert(sizeof(struct trap_frame) == 22 * 8, "trap_frame layout");
 
 /* Exception vectors used by name elsewhere */
+#define T_DIVIDE       0
+#define T_NMI          2
 #define T_BREAKPOINT   3
+#define T_INVALID_OPCODE 6
 #define T_DOUBLE_FAULT 8
 #define T_GP           13
 #define T_PAGE_FAULT   14
+#define T_MACHINE_CHECK 18
 
 /*
  * A handler may modify the frame; changes are written back to the

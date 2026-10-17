@@ -56,7 +56,7 @@ KSRC_ASM := $(shell find kernel -name '*.asm')
 KOBJ     := $(KSRC_C:%.c=$(BUILD)/obj/%.o) $(KSRC_ASM:%.asm=$(BUILD)/obj/%.asm.o)
 
 # ---- QEMU flags -----------------------------------------------------------
-QEMUFLAGS := -M q35 -m 512M -cdrom $(ISO) -no-reboot -display none \
+QEMUFLAGS := -M q35 -cpu max -m 512M -cdrom $(ISO) -no-reboot -display none \
     -serial stdio
 
 # ---- Dependencies ---------------------------------------------------------
@@ -88,14 +88,58 @@ $(BUILD)/obj/%.asm.o: %.asm
 -include $(KOBJ:.o=.d)
 
 
+# ---- User programs and the initramfs ----------------------------------------
+# No floating point in ring 3 (CR0.EM): -mgeneral-regs-only keeps gcc from
+# emitting SSE. Each program is crt0 + its C files, linked at 0x400000.
+USER_CFLAGS := -g -O2 -pipe -std=gnu11 -Wall -Wextra -Werror \
+    -ffreestanding -fno-stack-protector -fno-pie -fno-pic \
+    -m64 -march=x86-64 -mgeneral-regs-only \
+    -MMD -MP -Iabi/include -Iuserland/include
+USER_LDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 \
+    -T userland/user.ld
+USER_CRT0 := $(BUILD)/user/crt0.o
+
+$(USER_CRT0): userland/crt0.asm
+	@mkdir -p $(@D)
+	$(NASM) -f elf64 -g -F dwarf $< -o $@
+
+$(BUILD)/user/obj/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+-include $(shell find $(BUILD)/user -name '*.d' 2>/dev/null)
+
+# The initramfs tree. Test builds add /test: the ring 3 test programs.
+INITRD     := $(BUILD)/initrd.tar
+INITRD_DIR := $(BUILD)/initrd
+INITRD_FILES :=
+ifdef TEST
+TEST_PROGS   := $(patsubst tests/user/%.c,%,$(wildcard tests/user/*.c))
+INITRD_FILES += $(TEST_PROGS:%=$(INITRD_DIR)/test/%) $(INITRD_DIR)/test/notelf
+endif
+
+$(INITRD_DIR)/test/%: $(BUILD)/user/obj/tests/user/%.o $(USER_CRT0) userland/user.ld
+	@mkdir -p $(@D)
+	$(LD) $(USER_LDFLAGS) $(USER_CRT0) $< -o $@
+
+$(INITRD_DIR)/test/notelf: tests/user/notelf
+	@mkdir -p $(@D)
+	cp $< $@
+
+$(INITRD): $(INITRD_FILES)
+	@mkdir -p $(INITRD_DIR)
+	tar --format=ustar --owner=0 --group=0 --numeric-owner \
+	    -C $(INITRD_DIR) -cf $@ .
+
 # --- ISO ----------------------------------------------------------------------
 .PHONY: iso
 iso: $(ISO)
-	
-$(ISO): $(KERNEL) boot/limine.conf $(DEPS_STAMP)
+
+$(ISO): $(KERNEL) $(INITRD) boot/limine.conf $(DEPS_STAMP)
 	rm -rf $(BUILD)/iso_root
 	mkdir -p $(BUILD)/iso_root/boot/limine $(BUILD)/iso_root/EFI/BOOT
 	cp $(KERNEL) $(BUILD)/iso_root/boot/kernel
+	cp $(INITRD) $(BUILD)/iso_root/boot/initrd.tar
 	cp boot/limine.conf limine/limine-bios.sys limine/limine-bios-cd.bin \
 	   limine/limine-uefi-cd.bin $(BUILD)/iso_root/boot/limine/
 	cp limine/BOOTX64.EFI $(BUILD)/iso_root/EFI/BOOT/
@@ -121,12 +165,14 @@ test: host-test                      ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-HOST_TESTS := path fmt pmm pt slab
+HOST_TESTS := path fmt pmm pt slab elf tar
 $(HOST_BUILD)/test_path: kernel/path.c
 $(HOST_BUILD)/test_fmt: kernel/fmt.c
 $(HOST_BUILD)/test_pmm: kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_pt: kernel/pt.c kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_slab: kernel/slab.c kernel/pmm.c tests/host/lock_stub.c
+$(HOST_BUILD)/test_elf: kernel/elf.c
+$(HOST_BUILD)/test_tar: kernel/tar.c
 
 host-test: $(HOST_TESTS:%=$(HOST_BUILD)/test_%)   ## Unit tests on the host, with sanitizers
 	@for t in $^; do ./$$t || exit 1; done

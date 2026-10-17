@@ -2,7 +2,11 @@
 
 #define EPERM 1         // Operation not permitted
 #define ENOENT 2        // No such file or directory
+#define ESRCH 3         // No such process
+#define E2BIG 7         // Argument list too long
+#define ENOEXEC 8       // Exec format error
 #define EBADF 9         //  Bad file descriptor
+#define ECHILD 10       // No child processes
 #define ENOMEM 12       // Out of memory
 #define EFAULT 14       // Bad address
 #define EEXIST 17       // File exists

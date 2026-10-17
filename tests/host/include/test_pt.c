@@ -151,6 +151,46 @@ static void test_free_user(void) {
   CHECK(pmm_free(kframe) == 0); /* still ours: not freed by pt_free_user */
 }
 
+/* pt_copy_user: same pages, same flags, fresh frames with the same bytes;
+ * the kernel half is not copied. */
+static void test_copy_user(void) {
+  reset();
+  uint64_t src = pt_new();
+  const uint64_t user[] = {0x400000, 0x401000, 0x7fffffffe000UL};
+  const uint64_t flags[] = {PTE_U, PTE_U | PTE_W | PTE_NX, PTE_U | PTE_W};
+  for (int i = 0; i < 3; i++) {
+    uint64_t f = pmm_alloc();
+    memset(phys_to_virt(f), 'a' + i, PAGE_SIZE);
+    CHECK(pt_map(src, user[i], f, flags[i]) == 0);
+  }
+  CHECK(pt_map(src, KBASE, pmm_alloc(), PTE_W) == 0);
+
+  uint64_t dst = pt_new();
+  CHECK(pt_copy_user(dst, src) == 0);
+  for (int i = 0; i < 3; i++) {
+    uint64_t s = pt_lookup(src, user[i]), d = pt_lookup(dst, user[i]);
+    CHECK(d != 0);
+    CHECK((d & PTE_ADDR) != (s & PTE_ADDR));
+    CHECK((d & ~PTE_ADDR) == (s & ~PTE_ADDR));
+    const uint8_t *p = phys_to_virt(d & PTE_ADDR);
+    CHECK(p[0] == 'a' + i && p[PAGE_SIZE - 1] == 'a' + i);
+  }
+  CHECK(pt_lookup(dst, KBASE) == 0);
+
+  /* writing the copy leaves the original alone */
+  *(uint8_t *)phys_to_virt(pt_lookup(dst, user[1]) & PTE_ADDR) = 'z';
+  CHECK(*(uint8_t *)phys_to_virt(pt_lookup(src, user[1]) & PTE_ADDR) == 'b');
+
+  /* Out of memory partway (a copy needs 3 tables + 3 frames): reported,
+   * and pt_free_user gives back everything the partial copy took. */
+  uint64_t part = pt_new();
+  while (pmm_free_count() > 5)
+    (void)pmm_alloc();
+  CHECK(pt_copy_user(part, src) == -ENOMEM);
+  pt_free_user(part);
+  CHECK(pmm_free_count() == 5 + 1); /* + the PML4 itself */
+}
+
 int main(void) {
   mem = malloc(MEM_SIZE);
   test_map_lookup_unmap();
@@ -159,6 +199,7 @@ int main(void) {
   test_oom();
   test_random();
   test_free_user();
+  test_copy_user();
   free(mem);
   return CHECK_DONE();
 }

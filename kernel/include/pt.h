@@ -48,6 +48,14 @@ uint64_t pt_unmap(uint64_t pml4, uint64_t virt);
 uint64_t pt_lookup(uint64_t pml4, uint64_t virt);
 
 /*
+ * Copy the lower half of `src` into `dst` (fork, eagerly): every mapped
+ * page gets a fresh frame with the same contents and flags. Returns 0, or
+ * -ENOMEM with `dst` partly filled (free it with pt_free_user). `dst`
+ * must have nothing mapped where `src` does.
+ */
+int pt_copy_user(uint64_t dst, uint64_t src);
+
+/*
  * Free the lower half of `pml4` (PML4 slots 0..255): every frame mapped
  * there, every table, and then the PML4 itself. The higher half is shared
  * kernel tables and is left alone. Assumes the address space owns every

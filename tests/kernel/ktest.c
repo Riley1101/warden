@@ -44,7 +44,20 @@ void ktest_fail(void) { qemu_exit(QEMU_EXIT_FAIL); }
   X(alloc_concurrent)                                                          \
   X(user_map_kernel_half)                                                      \
   X(user_preempt)                                                              \
-  X(user_fault_kills)
+  X(user_fault_kills)                                                          \
+  X(syscall_exit)                                                              \
+  X(syscall_enosys)                                                            \
+  X(syscall_debug_write)                                                       \
+  X(syscall_efault)                                                            \
+  X(usercopy_kernel)                                                           \
+  X(smap_blocks_user_read)                                                     \
+  X(smep_blocks_user_exec)                                                     \
+  X(proc_spawn_errors)                                                         \
+  X(proc_hello)                                                                \
+  X(proc_args)                                                                 \
+  X(proc_fork)                                                                 \
+  X(proc_kill)                                                                 \
+  X(proc_exec)
 
 #define KTEST_DECL(name) int test_##name(void);
 #define KTEST_ENTRY(name) {#name, test_##name},

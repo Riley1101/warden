@@ -47,6 +47,18 @@ uint64_t vmm_space_new(void);
  */
 int vmm_space_map(uint64_t pml4, uint64_t virt, uint64_t phys, uint64_t flags);
 
+/*
+ * Write `n` bytes into user pages of `pml4`, which need not be in CR3,
+ * through the HHDM. Ignores the pages' write permission: for building an
+ * address space (loading a program, its stack). -EFAULT if any page is not
+ * a mapped user page.
+ */
+int vmm_space_write(uint64_t pml4, uint64_t virt, const void *src, size_t n);
+
+/* Copy every user page of `src` into the empty space `dst` (fork). 0, or
+ * -ENOMEM with `dst` partly filled: free it. */
+int vmm_space_copy(uint64_t dst, uint64_t src);
+
 /* Free an address space and every frame it maps. Not while it is in CR3. */
 void vmm_space_free(uint64_t pml4);
 

@@ -29,7 +29,14 @@ SECTIONS
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
     __rodata_start = .;
-    .rodata : { *(.rodata .rodata.*) } :rodata
+    .rodata : {
+        *(.rodata .rodata.*)
+        /* usercopy.asm: {faulting instruction, fixup} pairs */
+        . = ALIGN(8);
+        __extable_start = .;
+        KEEP(*(.extable))
+        __extable_end = .;
+    } :rodata
     __rodata_end = .;
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
