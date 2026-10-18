@@ -1,12 +1,15 @@
 #include <apic.h>
+#include <cpu.h>
 #include <gdt.h>
 #include <idt.h>
 #include <kprintf.h>
 #include <limine.h>
 #include <pmm.h>
+#include <fs.h>
 #include <sched.h>
 #include <serial.h>
 #include <slab.h>
+#include <syscall.h>
 #include <timer.h>
 #include <vmm.h>
 
@@ -33,6 +36,11 @@ __attribute((
 __attribute((used, section(".limine_requests"))) static volatile struct
     limine_executable_address_request kaddr_request = {
         .id = LIMINE_EXECUTABLE_ADDRESS_REQUEST_ID, .revision = 0};
+
+__attribute((
+    used,
+    section(".limine_requests"))) static volatile struct limine_module_request
+    module_request = {.id = LIMINE_MODULE_REQUEST_ID, .revision = 0};
 
 __attribute((used, section(".limine_requests_end"))) static volatile uint64_t
     limine_requests_ends[] = LIMINE_REQUESTS_END_MARKER;
@@ -111,6 +119,24 @@ static void memory_setup(void) {
   kmalloc_init();
 }
 
+/* The initramfs is the one module (boot/limine.conf): unpacked into the
+ * filesystem now, while the response describing it is still ours (it is
+ * in bootloader-reclaimable memory). */
+static void initrd_setup(void) {
+  if (fs_init() != 0)
+    panic("fs: no memory for the root");
+  struct limine_module_response *r = module_request.response;
+  if (r == NULL || r->module_count == 0) {
+    kprintf("initrd: none, the filesystem is empty\n");
+    return;
+  }
+  struct limine_file *f = r->modules[0];
+  int err = fs_load_tar(f->address, f->size);
+  if (err != 0)
+    panic("initrd: unpacking failed: %d", err);
+  kprintf("initrd: %lu KiB unpacked\n", f->size / 1024);
+}
+
 /* Once we're off Limine's stack and page tables, its memory is ours. */
 static void reclaim_bootloader_memory(void) {
   uint64_t bytes = 0;
@@ -123,6 +149,25 @@ static void reclaim_bootloader_memory(void) {
               reclaimable[i].len, err);
   }
   kprintf("pmm: reclaimed %lu KiB from the bootloader\n", bytes / 1024);
+}
+
+static void cpu_setup(void) {
+  /* No floating point anywhere: the kernel is built without it, and threads
+   * don't save x87/SSE state, so in ring 3 it would leak between processes.
+   * With EM set, x87 traps (#NM) and SSE is undefined (#UD). */
+  write_cr0(read_cr0() | CR0_EM);
+
+  /* The kernel touches user memory only through usercopy: a stray user
+   * pointer, or a jump into user code, faults instead of working. */
+  uint32_t a, b, c, d;
+  cpuid(0, &a, &b, &c, &d);
+  uint32_t max_leaf = a;
+  b = 0;
+  if (max_leaf >= 7)
+    cpuid(7, &a, &b, &c, &d);
+  if (!(b & CPUID7_SMEP) || !(b & CPUID7_SMAP))
+    panic("cpu: SMEP and SMAP are required (QEMU: -cpu max)");
+  write_cr4(read_cr4() | CR4_SMEP | CR4_SMAP);
 }
 
 #define BOOT_STACK_SIZE (64 * 1024)
@@ -159,9 +204,12 @@ int kmain() {
     panic("unsupported Limine base revision");
   }
 
+  cpu_setup();
   gdt_init();
   idt_init();
+  syscall_init();
   memory_setup();
+  initrd_setup();
 
   /* Leave Limine's stack (bootloader-reclaimable memory) for our own. A call,
    * not a jmp, so kmain_late starts with the stack aligned as the ABI wants. */

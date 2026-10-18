@@ -4,6 +4,10 @@
 #include "idt.h"
 #include "pmm.h"
 #include "vmm.h"
+#include "kstring.h"
+#include "usercopy.h"
+
+#include <abi/errno.h>
 
 /*
  * Expected-fault probes. The #PF handler records the fault and resumes at
@@ -114,6 +118,98 @@ int test_unmapped_faults(void) {
     KASSERT(after);
     KASSERT(fault_cr2 == TEST_VIRT);
     KASSERT((fault_err & PF_P) == 0); /* not present */
+    return 0;
+}
+
+/* ---- the kernel and user memory ------------------------------------------ */
+
+/*
+ * A user address space with one read-only page holding `ret` and one
+ * writable page, loaded in CR3. Interrupts stay off until uspace_leave so
+ * the scheduler can't switch CR3 back under us.
+ */
+#define U_RO 0x400000UL
+#define U_RW 0x401000UL
+
+struct uspace {
+    uint64_t pml4, ro, rw, flags;
+};
+
+static int uspace_enter(struct uspace *u) {
+    u->pml4 = vmm_space_new();
+    u->ro = pmm_alloc();
+    u->rw = pmm_alloc();
+    if (u->pml4 == 0 || u->ro == 0 || u->rw == 0)
+        return -1;
+    memset(phys_to_virt(u->ro), 0xC3, PAGE_SIZE); /* `ret` */
+    memset(phys_to_virt(u->rw), 0, PAGE_SIZE);
+    if (vmm_space_map(u->pml4, U_RO, u->ro, 0) != 0 ||
+        vmm_space_map(u->pml4, U_RW, u->rw, PTE_W | PTE_NX) != 0)
+        return -1;
+    u->flags = irq_save();
+    vmm_switch(u->pml4);
+    return 0;
+}
+
+static void uspace_leave(struct uspace *u) {
+    vmm_switch(vmm_kernel_pml4());
+    vmm_space_free(u->pml4); /* and both frames */
+    irq_restore(u->flags);
+}
+
+int test_usercopy_kernel(void) {
+    struct uspace u;
+    KASSERT(uspace_enter(&u) == 0);
+    char out[4] = "abc";
+    int to = copy_to_user((void *)U_RW, "xyz", 4);
+    int from = copy_from_user(out, (const void *)U_RW, 4);
+    int to_ro = copy_to_user((void *)U_RO, "xyz", 4);
+    int from_unmapped = copy_from_user(out, (const void *)(U_RW + PAGE_SIZE), 1);
+    int seen = memcmp(phys_to_virt(u.rw), "xyz", 4);
+    /* refused by the range check, before a single byte moves */
+    char untouched[4] = "abc";
+    int wraps = copy_from_user(untouched, (const void *)U_RW, SIZE_MAX);
+    int past_top = copy_from_user(untouched, (const void *)(USER_TOP - 1), 2);
+    uspace_leave(&u);
+
+    KASSERT(wraps == -EFAULT);
+    KASSERT(past_top == -EFAULT);
+    KASSERT(memcmp(untouched, "abc", 4) == 0);
+
+    KASSERT(to == 0);
+    KASSERT(from == 0);
+    KASSERT(memcmp(out, "xyz", 4) == 0);
+    KASSERT(seen == 0);
+    KASSERT(to_ro == -EFAULT);
+    KASSERT(from_unmapped == -EFAULT);
+    return 0;
+}
+
+/* Outside usercopy, a kernel read of a user page faults (SMAP)... */
+int test_smap_blocks_user_read(void) {
+    struct uspace u;
+    KASSERT(uspace_enter(&u) == 0);
+    probe_begin();
+    int faulted = read_faults((volatile void *)U_RW);
+    probe_end();
+    uspace_leave(&u);
+    KASSERT(faulted);
+    KASSERT(fault_cr2 == U_RW);
+    KASSERT(fault_err & PF_P);
+    return 0;
+}
+
+/* ...and so does running user code in ring 0 (SMEP). */
+int test_smep_blocks_user_exec(void) {
+    struct uspace u;
+    KASSERT(uspace_enter(&u) == 0);
+    probe_begin();
+    fault_ret = 1;
+    ((void (*)(void))U_RO)();
+    probe_end();
+    uspace_leave(&u);
+    KASSERT(fault_cr2 == U_RO);
+    KASSERT((fault_err & (PF_P | PF_I)) == (PF_P | PF_I));
     return 0;
 }
 

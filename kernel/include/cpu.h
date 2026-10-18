@@ -6,6 +6,7 @@
 
 #define MSR_EFER  0xC0000080
 #define EFER_NXE  (1UL << 11) /* allow the NX bit in page tables */
+#define CR0_EM    (1UL << 2)  /* no x87/SSE: they trap (#NM / #UD) */
 #define CR0_WP    (1UL << 16) /* ring 0 honours read-only pages too */
 
 static inline uint64_t rdmsr(uint32_t msr) {
@@ -27,6 +28,24 @@ static inline uint64_t read_cr0(void) {
 
 static inline void write_cr0(uint64_t v) {
   __asm__ __volatile__("mov %0, %%cr0" : : "r"(v) : "memory");
+}
+
+#define CR4_SMEP  (1UL << 20) /* ring 0 can't execute user pages */
+#define CR4_SMAP  (1UL << 21) /* ring 0 can't touch user pages, except
+                                 between stac and clac (usercopy) */
+
+/* CPUID leaf 7, EBX */
+#define CPUID7_SMEP (1u << 7)
+#define CPUID7_SMAP (1u << 20)
+
+static inline uint64_t read_cr4(void) {
+  uint64_t v;
+  __asm__ __volatile__("mov %%cr4, %0" : "=r"(v));
+  return v;
+}
+
+static inline void write_cr4(uint64_t v) {
+  __asm__ __volatile__("mov %0, %%cr4" : : "r"(v) : "memory");
 }
 
 static inline uint64_t read_cr2(void) {

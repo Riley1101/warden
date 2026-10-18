@@ -1,10 +1,14 @@
 #include "idt.h"
 
+#include <abi/syscall.h>
+#include <abi/wait.h>
 #include <cpu.h>
 #include <gdt.h>
 #include <kprintf.h>
 #include <sched.h>
 #include <stddef.h>
+#include <usercopy.h>
+#include <vmm.h>
 
 
 
@@ -31,6 +35,7 @@ struct idt_ptr {
 
 /* Present, DPL 0, 64-bit interrupt gate (clears IF on entry). */
 #define GATE_INT 0x8E
+#define GATE_DPL(n) ((n) << 5) /* lowest ring that may `int` to it */
 
 static struct idt_gate idt[256];
 static idt_handler_t handlers[256];
@@ -42,13 +47,14 @@ extern const uint64_t idt_stubs[256]; /* idt.asm */
  * @param vector The interrupt vector number (0-255).
  * @param addr The address of the trap handler function.
  * @param ist The Interrupt Stack Table (IST) index to use for this gate (0 means no stack switch).
+ * @param dpl The lowest privilege (3 = user) allowed to raise it with `int`.
  */
-static void set_gate(uint8_t vector, uint64_t addr, uint8_t ist) {
+static void set_gate(uint8_t vector, uint64_t addr, uint8_t ist, uint8_t dpl) {
   idt[vector] = (struct idt_gate){
       .off_lo = addr & 0xFFFF,
       .selector = GDT_KCODE,
       .ist = ist,
-      .type_attr = GATE_INT,
+      .type_attr = GATE_INT | GATE_DPL(dpl),
       .off_mid = (addr >> 16) & 0xFFFF,
       .off_hi = addr >> 32,
   };
@@ -59,8 +65,11 @@ static void set_gate(uint8_t vector, uint64_t addr, uint8_t ist) {
  */
 void idt_init(void) {
   for (int v = 0; v < 256; v++)
-    set_gate(v, idt_stubs[v], 0);
-  set_gate(T_DOUBLE_FAULT, idt_stubs[T_DOUBLE_FAULT], IST_DOUBLE_FAULT);
+    set_gate(v, idt_stubs[v], 0, 0);
+
+  set_gate(T_DOUBLE_FAULT, idt_stubs[T_DOUBLE_FAULT], IST_DOUBLE_FAULT, 0);
+
+  set_gate(SYSCALL_VECTOR, idt_stubs[SYSCALL_VECTOR], 0, 3);
 
   struct idt_ptr ptr = {sizeof idt - 1, (uint64_t)idt};
   __asm__ __volatile__("lidt %0" : : "m"(ptr));
@@ -117,14 +126,29 @@ void idt_dispatch(struct trap_frame *f) {
     return;
   }
 
-  /* A fault in ring 3 is the process's problem, not the kernel's. */
-  if (f->vector < 32 && (f->cs & 3) == 3) {
+  /* usercopy hit a bad user address: it returns -EFAULT. A kernel address
+   * faulting there is a kernel bug, so it falls through to the panic. */
+  if (f->vector == T_PAGE_FAULT && (f->cs & 3) == 0 && read_cr2() < USER_TOP) {
+    uint64_t fixup = extable_fixup(f->rip);
+    if (fixup != 0) {
+      f->rip = fixup;
+      return;
+    }
+  }
+
+  /* A fault in ring 3 is the process's problem, not the kernel's. NMI and
+   * machine checks are the hardware's, whoever happened to be running. */
+  if (f->vector < 32 && f->vector != T_NMI && f->vector != T_MACHINE_CHECK &&
+      (f->cs & 3) == 3) {
     kprintf("%s: %s at rip %016lx", thread_current()->name,
             exception_names[f->vector], f->rip);
     if (f->vector == T_PAGE_FAULT)
       kprintf(" cr2 %016lx", read_cr2());
     kprintf(", killed\n");
-    thread_exit();
+    int sig = f->vector == T_INVALID_OPCODE ? SIGILL
+              : f->vector == T_DIVIDE     ? SIGFPE
+                                          : SIGSEGV;
+    thread_exit(W_SIGNALED(sig));
   }
 
   // If we get here, it means the interrupt is not handled by any registered handler.

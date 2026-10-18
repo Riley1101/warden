@@ -11,14 +11,15 @@ Four weeks. If something slips, protect in this order: escape suite > agent demo
 - [x] Slab allocator.
 - [x] GDT, IDT
 - [x] APIC timer and round-robin scheduler.
-- [ ] User mode: TSS, ring 3 entry, per-process address spaces.
-- [ ] Syscalls: single checkpoint `dispatch()` table. Every entry declares a capability;
+- [x] User mode: TSS, ring 3 entry, per-process address spaces.
+- [x] Syscalls: single checkpoint `dispatch()` table. Every entry declares a capability;
       `dispatch` refuses entries without one.
-- [ ] Usercopy: copy_from_user, copy_to_user with exception table. Any ring 3 fault kills the process, not the kernel.
-- [ ] ELF loader, fork (eager copy), exec, wait, exit, getpid, kill.
-- [ ] pipes and dup2
-- [ ] Minimal libc: string functions, snprintf, malloc over brk, syscall wrappers with errno
-- [ ] Writable in-memory fs loaded from initramfs: create, write, `unlink`, `rename`, `mkdir`, `stat`.
+- [x] Usercopy: copy_from_user, copy_to_user with exception table. Any ring 3 fault kills the process, not the kernel.
+- [x] ELF loader, fork (eager copy), exec, wait, exit, getpid, kill.
+      (Programs load from the filesystem.)
+- [x] pipes and dup2
+- [x] Minimal libc: string functions, snprintf, malloc over brk, syscall wrappers with errno
+- [x] Writable in-memory fs loaded from initramfs: create, write, `unlink`, `rename`, `mkdir`, `stat`.
 - [ ] Tools: `ls, cat, echo, rm, mv, mkdir, wc, ps`
 - [ ] `sh` with `sh -c "..."` and simple pipelines
 

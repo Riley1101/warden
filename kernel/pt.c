@@ -1,6 +1,7 @@
 #include "pt.h"
 
 #include <abi/errno.h>
+#include <kstring.h>
 #include <pmm.h>
 #include <stddef.h>
 
@@ -100,6 +101,45 @@ static void free_table(uint64_t phys, int level) {
       free_table(t[i] & PTE_ADDR, level - 1);
   }
   pmm_free(phys);
+}
+
+/* Copy every page below the table at `level` (2 = PDPT, 0 = PT), which
+ * maps virtual addresses from `base`, into `dst`. */
+static int copy_table(uint64_t dst, uint64_t phys, int level, uint64_t base) {
+  const uint64_t *t = table(phys);
+  for (int i = 0; i < ENTRIES; i++) {
+    if (!(t[i] & PTE_P) || (t[i] & PTE_PS))
+      continue;
+    uint64_t virt = base + ((uint64_t)i << (12 + 9 * level));
+    if (level > 0) {
+      int err = copy_table(dst, t[i] & PTE_ADDR, level - 1, virt);
+      if (err != 0)
+        return err;
+      continue;
+    }
+    uint64_t frame = pmm_alloc();
+    if (frame == 0)
+      return -ENOMEM;
+    memcpy(table(frame), table(t[i] & PTE_ADDR), PAGE_SIZE);
+    int err = pt_map(dst, virt, frame, t[i] & ~(PTE_ADDR | PTE_A | PTE_D));
+    if (err != 0) {
+      pmm_free(frame);
+      return err;
+    }
+  }
+  return 0;
+}
+
+int pt_copy_user(uint64_t dst, uint64_t src) {
+  const uint64_t *t = table(src);
+  for (int i = 0; i < ENTRIES / 2; i++) {
+    if (!(t[i] & PTE_P))
+      continue;
+    int err = copy_table(dst, t[i] & PTE_ADDR, 2, (uint64_t)i << 39);
+    if (err != 0)
+      return err;
+  }
+  return 0;
 }
 
 void pt_free_user(uint64_t pml4) {

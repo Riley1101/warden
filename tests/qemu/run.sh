@@ -12,7 +12,7 @@ if [ -z "$TIMEOUT" ]; then
 fi
 
 "$TIMEOUT" "$SECS" qemu-system-x86_64 \
-    -M q35 -m 512M -cdrom "$ISO" \
+    -M q35 -cpu max -m 512M -cdrom "$ISO" \
     -no-reboot -display none \
     -serial file:"$LOG" \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04

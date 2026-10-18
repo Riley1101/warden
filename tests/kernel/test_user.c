@@ -1,5 +1,6 @@
 #ifdef WARDEN_TEST
 #include "ktest.h"
+#include "cpu.h"
 #include "kstring.h"
 #include "pmm.h"
 #include "sched.h"
@@ -8,6 +9,8 @@
 #include "vmm.h"
 
 #include <abi/errno.h>
+#include <abi/syscall.h>
+#include <abi/wait.h>
 
 /*
  * Ring 3 without syscalls: a few bytes of machine code in a user page.
@@ -34,7 +37,14 @@ static struct thread *run_user(const char *name, const uint8_t *code,
         vmm_space_map(pml4, USER_STACK, stack, PTE_W | PTE_NX) != 0)
         return NULL;
     user_stack_frame = stack;
-    return thread_create_user(name, pml4, USER_CODE, USER_STACK_TOP);
+    struct trap_frame tf;
+    trap_frame_user(&tf, USER_CODE, USER_STACK_TOP);
+    uint64_t flags = irq_save(); /* its files, before it can run */
+    struct thread *t = thread_create_user(name, pml4, &tf, NULL);
+    if (t != NULL)
+        fd_init_console(t->fd);
+    irq_restore(flags);
+    return t;
 }
 
 static int wait_threads_done(void) {
@@ -79,7 +89,7 @@ int test_user_preempt(void) {
     KASSERT(first > 0);
     KASSERT(*counter > first);
 
-    thread_kill(t);
+    thread_kill(t, W_SIGNALED(SIGKILL));
     KASSERT(wait_threads_done());
     KASSERT(free_frames() == before);
     return 0;
@@ -103,6 +113,12 @@ static const uint8_t prog_exec_stack[] = {
     0x48, 0xb8, 0x00, 0xf0, 0x7f, 0x00, 0x00, 0x00, 0x00, 0x00,
     0xff, 0xe0,
 };
+/* Floating point is off in ring 3 (its state is not saved per thread).
+ * Each spins after the instruction, so surviving it hangs the test. */
+/*   fninit ; jmp $   (CR0.EM: #NM) */
+static const uint8_t prog_x87[] = {0xdb, 0xe3, 0xeb, 0xfe};
+/*   xorps xmm0, xmm0 ; jmp $   (CR0.EM: #UD) */
+static const uint8_t prog_sse[] = {0x0f, 0x57, 0xc0, 0xeb, 0xfe};
 
 static const struct {
     const char *name;
@@ -115,6 +131,8 @@ static const struct {
     {"read_kernel", prog_read_kernel, sizeof prog_read_kernel},
     {"write_text", prog_write_text, sizeof prog_write_text},
     {"exec_stack", prog_exec_stack, sizeof prog_exec_stack},
+    {"x87", prog_x87, sizeof prog_x87},
+    {"sse", prog_sse, sizeof prog_sse},
 };
 
 /* Each faults in ring 3: it dies on its own, the kernel lives, and nothing
@@ -127,6 +145,99 @@ int test_user_fault_kills(void) {
         KASSERT(wait_threads_done());
         KASSERT(free_frames() == before);
     }
+    return 0;
+}
+
+/* ---- syscalls ----------------------------------------------------------- */
+
+#define SYSCALL       0xcd, 0x80                        /* int 0x80 */
+#define MOV_EAX(n)    0xb8, (n), 0x00, 0x00, 0x00       /* mov eax, n (< 256) */
+#define SAVE_RAX                                        /* mov [USER_STACK], rax */ \
+    0xbb, 0x00, 0xf0, 0x7f, 0x00, /* mov ebx, USER_STACK */                    \
+    0x48, 0x89, 0x03              /* mov [rbx], rax */
+#define EXIT          MOV_EAX(SYS_exit), SYSCALL
+#define HANG          0xeb, 0xfe                        /* jmp $ */
+
+/* What the program left at USER_STACK. Read before the thread is reaped:
+ * its frames are still ours until then. */
+static int64_t saved_rax(void) {
+    return *(volatile int64_t *)phys_to_virt(user_stack_frame);
+}
+
+/* exit returns to nothing: the thread is gone, and so is all it had. */
+static const uint8_t prog_exit[] = {EXIT, HANG};
+
+int test_syscall_exit(void) {
+    size_t before = free_frames();
+    KASSERT(run_user("exit", prog_exit, sizeof prog_exit) != NULL);
+    KASSERT(wait_threads_done());
+    KASSERT(free_frames() == before);
+    return 0;
+}
+
+/* A number past the table, and one that is negative as a signed value. */
+static const uint8_t prog_enosys[] = {
+    MOV_EAX(200), SYSCALL, SAVE_RAX, EXIT, HANG,
+};
+static const uint8_t prog_enosys_neg[] = {
+    0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, /* mov rax, -1 */
+    SYSCALL, SAVE_RAX, EXIT, HANG,
+};
+
+int test_syscall_enosys(void) {
+    KASSERT(run_user("enosys", prog_enosys, sizeof prog_enosys) != NULL);
+    KASSERT(wait_threads_done());
+    KASSERT(saved_rax() == -ENOSYS);
+
+    KASSERT(run_user("enosys_neg", prog_enosys_neg, sizeof prog_enosys_neg) !=
+            NULL);
+    KASSERT(wait_threads_done());
+    KASSERT(saved_rax() == -ENOSYS);
+    return 0;
+}
+
+/*   write(1, buf, len) with buf and len as 64-bit immediates, patched per
+ *   case; stdout is the console */
+#define W_BUF_AT 12 /* offset of buf's imm64 */
+#define W_LEN_AT 22 /* offset of len's imm64 */
+static const uint8_t prog_write[] = {
+    MOV_EAX(SYS_write),
+    0xbf, 0x01, 0x00, 0x00, 0x00,       /* mov edi, 1 */
+    0x48, 0xbe, 0, 0, 0, 0, 0, 0, 0, 0, /* mov rsi, buf */
+    0x48, 0xba, 0, 0, 0, 0, 0, 0, 0, 0, /* mov rdx, len */
+    SYSCALL, SAVE_RAX, EXIT, HANG,
+    'o', 'k', '\n', /* the message, at the end of the code page's code */
+};
+#define W_MSG_AT (sizeof prog_write - 3)
+
+/* write(1, buf, len) from ring 3; what it returned. */
+static int64_t write_returns(uint64_t buf, uint64_t len) {
+    uint8_t code[sizeof prog_write];
+    memcpy(code, prog_write, sizeof code);
+    memcpy(code + W_BUF_AT, &buf, 8);
+    memcpy(code + W_LEN_AT, &len, 8);
+    if (run_user("write", code, sizeof code) == NULL || !wait_threads_done())
+        return 1; /* never a valid result here */
+    return saved_rax();
+}
+
+/* Prints "ok\n" from a user buffer. */
+int test_syscall_write(void) {
+    KASSERT(write_returns(USER_CODE + W_MSG_AT, 3) == 3);
+    KASSERT(write_returns(USER_CODE, 0) == 0);
+    return 0;
+}
+
+/* Bad user pointers get -EFAULT; the process carries on (and exits), the
+ * kernel never dereferences them for real. */
+int test_syscall_efault(void) {
+    size_t before = free_frames();
+    KASSERT(write_returns(0, 1) == -EFAULT);                    /* unmapped */
+    KASSERT(write_returns(0xffffffff80000000UL, 1) == -EFAULT); /* kernel */
+    KASSERT(write_returns(USER_TOP - 1, 2) == -EFAULT);         /* past top */
+    /* starts mapped, faults partway (the page after the code is unmapped) */
+    KASSERT(write_returns(USER_CODE + PAGE_SIZE - 2, 4) == -EFAULT);
+    KASSERT(free_frames() == before);
     return 0;
 }
 

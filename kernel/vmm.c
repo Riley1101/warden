@@ -3,6 +3,7 @@
 #include <abi/errno.h>
 #include <cpu.h>
 #include <kprintf.h>
+#include <kstring.h>
 #include <lock.h>
 
 /* linker.ld */
@@ -119,6 +120,34 @@ int vmm_space_map(uint64_t pml4, uint64_t virt, uint64_t phys, uint64_t flags) {
   if (virt >= USER_TOP)
     return -EINVAL; /* a user page in the shared kernel half: everyone's */
   return pt_map(pml4, virt, phys, flags | PTE_U);
+}
+
+int vmm_space_write(uint64_t pml4, uint64_t virt, const void *src, size_t n) {
+  const uint8_t *s = src;
+  while (n > 0) {
+    uint64_t page = align_down(virt);
+    uint64_t e = virt < USER_TOP ? pt_lookup(pml4, page) : 0;
+    if (!(e & PTE_U))
+      return -EFAULT;
+    size_t off = virt - page;
+    size_t chunk = PAGE_SIZE - off < n ? PAGE_SIZE - off : n;
+    memcpy((uint8_t *)phys_to_virt(e & PTE_ADDR) + off, s, chunk);
+    virt += chunk;
+    s += chunk;
+    n -= chunk;
+  }
+  return 0;
+}
+
+int vmm_space_copy(uint64_t dst, uint64_t src) { return pt_copy_user(dst, src); }
+
+uint64_t vmm_space_unmap(uint64_t pml4, uint64_t virt) {
+  if (virt >= USER_TOP)
+    return 0;
+  uint64_t phys = pt_unmap(pml4, virt);
+  if (phys != 0 && (read_cr3() & PTE_ADDR) == pml4)
+    invlpg(virt);
+  return phys;
 }
 
 void vmm_space_free(uint64_t pml4) {
