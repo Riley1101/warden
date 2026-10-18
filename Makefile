@@ -11,6 +11,7 @@ CC      := $(TOOLCHAIN_PREFIX)gcc
 LD      := $(TOOLCHAIN_PREFIX)ld
 NASM    := nasm
 HOST_CC := cc
+PYTHON  := python3
 QEMU    := qemu-system-x86_64
 
 # Apple's clang ships an ASan runtime that hangs at startup on macOS 26, so
@@ -218,8 +219,8 @@ run-debug : $(ISO)                  ## Run the kernel in QEMU with GDB stub
 	$(QEMU) $(QEMUFLAGS) -s -S -d int,guest_errors -D $(BUILD)/qemu.log
  
  # ---- Tests  -----------------------------------------------------
-.PHONY: test host-test
-test: host-test                      ## Run all tests
+.PHONY: test host-test python-test
+test: host-test python-test          ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
@@ -240,6 +241,9 @@ $(HOST_BUILD)/test_malloc: HOST_CFLAGS += -include tests/host/libc_rename.h \
 
 host-test: $(HOST_TESTS:%=$(HOST_BUILD)/test_%)   ## Unit tests on the host, with sanitizers
 	@for t in $^; do ./$$t || exit 1; done
+
+python-test:                        ## Run host-side Python unit tests
+	$(PYTHON) -m unittest discover -s tests/python -p 'test_*.py'
 
 $(HOST_BUILD)/test_%: tests/host/include/test_%.c tests/host/include/check.h
 	@mkdir -p $(@D)
