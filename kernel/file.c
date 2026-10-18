@@ -1,6 +1,7 @@
 #include "file.h"
 
 #include <abi/errno.h>
+#include <fs.h>
 #include <pmm.h>
 #include <sched.h>
 #include <serial.h>
@@ -15,12 +16,18 @@ struct pipe {
   int readers, writers;
 };
 
-enum file_kind { F_CONSOLE, F_PIPE_READ, F_PIPE_WRITE };
+enum file_kind { F_CONSOLE, F_PIPE_READ, F_PIPE_WRITE, F_NODE };
 
 struct file {
   enum file_kind kind;
   int refs;
   struct pipe *pipe;
+  /* F_NODE: a file or directory, opened with `flags`. The offset is shared
+   * by every descriptor naming this file (fork, dup2), as on Unix; for a
+   * directory it counts entries read. */
+  struct node *node;
+  int flags;
+  uint64_t off;
 };
 
 /* One console, shared by everyone and never freed. */
@@ -104,12 +111,59 @@ static void pipe_close_end(struct pipe *p, enum file_kind end) {
   }
 }
 
+/* ---- fs nodes ------------------------------------------------------------- */
+
+/* Bounce through a kernel buffer: fs.c knows nothing of user memory. */
+#define BOUNCE 256
+
+static int64_t node_read(struct file *f, char *ubuf, size_t n) {
+  if ((f->flags & O_ACCMODE) == O_WRONLY)
+    return -EBADF;
+  if (fs_is_dir(f->node))
+    return -EISDIR;
+  char tmp[BOUNCE];
+  size_t got = 0;
+  while (got < n) {
+    int64_t r = fs_read(f->node, f->off, tmp, min(n - got, sizeof tmp));
+    if (r <= 0)
+      break;
+    if (copy_to_user(ubuf + got, tmp, (size_t)r) != 0)
+      return got > 0 ? (int64_t)got : -EFAULT;
+    f->off += (uint64_t)r;
+    got += (size_t)r;
+  }
+  return (int64_t)got;
+}
+
+static int64_t node_write(struct file *f, const char *ubuf, size_t n) {
+  if ((f->flags & O_ACCMODE) == O_RDONLY)
+    return -EBADF;
+  if (f->flags & O_APPEND)
+    f->off = fs_size(f->node);
+  char tmp[BOUNCE];
+  size_t put = 0;
+  while (put < n) {
+    size_t k = min(n - put, sizeof tmp);
+    if (copy_from_user(tmp, ubuf + put, k) != 0)
+      return put > 0 ? (int64_t)put : -EFAULT;
+    int64_t w = fs_write(f->node, f->off, tmp, k);
+    if (w < 0)
+      return put > 0 ? (int64_t)put : w;
+    f->off += k;
+    put += k;
+  }
+  return (int64_t)put;
+}
+
 /* ---- files ---------------------------------------------------------------- */
 
 static void file_put(struct file *f) {
   if (f == &console || --f->refs > 0)
     return;
-  pipe_close_end(f->pipe, f->kind);
+  if (f->kind == F_NODE)
+    fs_put(f->node);
+  else
+    pipe_close_end(f->pipe, f->kind);
   kfree(f);
 }
 
@@ -125,6 +179,8 @@ int64_t file_read(struct file *f, void *ubuf, size_t n) {
     return 0; /* no input yet */
   case F_PIPE_READ:
     return pipe_read(f->pipe, ubuf, n);
+  case F_NODE:
+    return node_read(f, ubuf, n);
   default:
     return -EBADF;
   }
@@ -136,6 +192,8 @@ int64_t file_write(struct file *f, const void *ubuf, size_t n) {
     return console_write(ubuf, n);
   case F_PIPE_WRITE:
     return pipe_write(f->pipe, ubuf, n);
+  case F_NODE:
+    return node_write(f, ubuf, n);
   default:
     return -EBADF;
   }
@@ -188,6 +246,37 @@ static int fd_free_slot(struct file **table, int after) {
     if (table[i] == NULL)
       return i;
   return -EMFILE;
+}
+
+int fd_open(struct file **table, const char *path, int flags) {
+  int fd = fd_free_slot(table, -1);
+  if (fd < 0)
+    return fd;
+  struct file *f = kzalloc(sizeof *f);
+  if (f == NULL)
+    return -ENOMEM;
+  int err = fs_open(path, flags, &f->node);
+  if (err != 0) {
+    kfree(f);
+    return err;
+  }
+  f->kind = F_NODE;
+  f->refs = 1;
+  f->flags = flags;
+  table[fd] = f;
+  return fd;
+}
+
+int fd_getdent(struct file **table, int fd, struct dirent *out) {
+  struct file *f = fd_get(table, fd);
+  if (f == NULL)
+    return -EBADF;
+  if (f->kind != F_NODE || !fs_is_dir(f->node))
+    return -ENOTDIR;
+  int r = fs_readdir(f->node, f->off, out);
+  if (r > 0)
+    f->off++;
+  return r;
 }
 
 int fd_pipe(struct file **table, int fds[2]) {

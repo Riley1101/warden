@@ -94,13 +94,18 @@ int test_proc_libc(void) {
     return 0;
 }
 
+int test_proc_fs(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/fs", "fs");
+    return 0;
+}
+
 int test_proc_spawn_errors(void) {
     struct thread *me = thread_current();
     size_t before = free_frames();
     const char *one[] = {"x"};
     KASSERT(proc_spawn("/test/nope", one, 1, me) == -ENOENT);
     KASSERT(proc_spawn("/test/notelf", one, 1, me) == -ENOEXEC);
-    KASSERT(proc_spawn("/test", one, 1, me) == -ENOENT); /* a directory */
+    KASSERT(proc_spawn("/test", one, 1, me) == -EACCES); /* a directory */
 
     /* arguments that don't fit the stack's top page */
     static char big[3000];

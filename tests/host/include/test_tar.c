@@ -1,103 +1,101 @@
 #include "check.h"
 #include "tar.h"
+#include "tar_builder.h"
 
 #include <abi/errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-/* Build archives by hand: header + contents, as GNU tar --format=ustar does. */
-static uint8_t ar[16 * 512];
-static size_t ar_len;
+/* What tar_each reported, in order. */
+struct member {
+  char path[256];
+  enum tar_type type;
+  const void *data;
+  size_t size;
+};
+static struct member seen[16];
+static int nseen;
 
-static uint8_t *add(const char *prefix, const char *name, char type,
-                    const char *body) {
-  uint8_t *h = ar + ar_len;
-  memset(h, 0, 512);
-  size_t n = strlen(body);
-  memcpy(h, name, strlen(name));
-  if (prefix != NULL)
-    memcpy(h + 345, prefix, strlen(prefix));
-  snprintf((char *)h + 100, 8, "%07o", 0644);
-  snprintf((char *)h + 124, 12, "%011o", (unsigned)n & 07777777);
-  h[156] = type;
-  memcpy(h + 257, "ustar", 6);
-  memcpy(h + 263, "00", 2);
-  memset(h + 148, ' ', 8);
-  unsigned sum = 0;
-  for (int i = 0; i < 512; i++)
-    sum += h[i];
-  snprintf((char *)h + 148, 8, "%06o", sum);
-  memcpy(h + 512, body, n);
-  ar_len += 512 + (n + 511) / 512 * 512;
-  return h;
+static int record(void *ctx, const char *path, enum tar_type type,
+                  const void *data, size_t size) {
+  (void)ctx;
+  if (nseen == 16)
+    return -1;
+  struct member *m = &seen[nseen++];
+  strcpy(m->path, path);
+  m->type = type;
+  m->data = data;
+  m->size = size;
+  return 0;
 }
 
-static void finish(void) {
-  memset(ar + ar_len, 0, 1024);
-  ar_len += 1024;
+static int walk(const void *tar, size_t len) {
+  nseen = 0;
+  return tar_each(tar, len, record, NULL);
 }
 
-static void reset(void) {
-  memset(ar, 0, sizeof ar);
-  ar_len = 0;
+static const struct member *member(const char *path) {
+  for (int i = 0; i < nseen; i++)
+    if (strcmp(seen[i].path, path) == 0)
+      return &seen[i];
+  return NULL;
 }
 
-static int find(const char *path, const char **data, size_t *size) {
-  return tar_find(ar, ar_len, path, (const void **)data, size);
-}
-
-static void test_find(void) {
-  reset();
+static void test_each(void) {
+  ar_reset();
+  add(NULL, "./", '5', "");
   add(NULL, "bin/", '5', "");
   add(NULL, "bin/sh", '0', "#!sh");
   add(NULL, "./etc/motd", '0', "hello\n");
   add("very/long", "path", '0', "deep");
-  add(NULL, "empty", '0', "");
+  add(NULL, "empty", '\0', ""); /* old-style regular file */
   add(NULL, "link", '2', "");
   finish();
 
-  const char *d;
-  size_t n;
-  CHECK(find("/bin/sh", &d, &n) == 0 && n == 4 && memcmp(d, "#!sh", 4) == 0);
-  CHECK(find("/etc/motd", &d, &n) == 0 && n == 6);
-  CHECK(find("/very/long/path", &d, &n) == 0 && n == 4);
-  CHECK(find("/empty", &d, &n) == 0 && n == 0);
+  CHECK(walk(ar, ar_len) == 0);
+  CHECK(nseen == 6); /* the symlink is skipped */
+  CHECK(strcmp(seen[0].path, "/") == 0 && seen[0].type == TAR_DIR);
+  CHECK(strcmp(seen[1].path, "/bin") == 0 && seen[1].type == TAR_DIR);
+  const struct member *m = member("/bin/sh");
+  CHECK(m && m->type == TAR_FILE && m->size == 4 &&
+        memcmp(m->data, "#!sh", 4) == 0);
+  CHECK((m = member("/etc/motd")) && m->size == 6);
+  CHECK((m = member("/very/long/path")) && m->size == 4);
+  CHECK((m = member("/empty")) && m->size == 0 && m->type == TAR_FILE);
+  CHECK(member("/link") == NULL);
 
-  CHECK(find("/bin", &d, &n) == -ENOENT);      /* a directory */
-  CHECK(find("/link", &d, &n) == -ENOENT);     /* not a regular file */
-  CHECK(find("/bin/s", &d, &n) == -ENOENT);    /* prefix of a name */
-  CHECK(find("/bin/shell", &d, &n) == -ENOENT);
-  CHECK(find("bin/sh", &d, &n) == -ENOENT);    /* relative */
-  CHECK(find("/very/longpath", &d, &n) == -ENOENT);
+  /* the callback's error stops the walk */
+  nseen = 15;
+  CHECK(tar_each(ar, ar_len, record, NULL) == -1);
 }
 
 static void test_malformed(void) {
-  const char *d;
-  size_t n;
-
-  reset();
+  ar_reset();
   uint8_t *h = add(NULL, "a", '0', "x");
+  add(NULL, "b", '0', "y");
   finish();
-  h[0] = 'b'; /* checksum no longer matches */
-  CHECK(find("/b", &d, &n) == -ENOENT);
+  h[0] = 'c'; /* checksum no longer matches */
+  CHECK(walk(ar, ar_len) == -EINVAL && nseen == 0);
 
-  reset();
-  h = add(NULL, "a", '0', "x");
+  ar_reset();
+  add(NULL, "a", '0', "x");
+  h = add(NULL, "b", '0', "y");
   finish();
   memcpy(h + 257, "nope!", 5);
-  CHECK(find("/a", &d, &n) == -ENOENT);
+  CHECK(walk(ar, ar_len) == -EINVAL && nseen == 1); /* a, then stop */
 
   /* size runs past the archive: never handed out */
-  reset();
+  ar_reset();
   add(NULL, "a", '0', "x");
   size_t one = ar_len;
-  CHECK(tar_find(ar, one - 512, "/a", (const void **)&d, &n) == -ENOENT);
-  CHECK(tar_find(ar, 100, "/a", (const void **)&d, &n) == -ENOENT);
-  CHECK(tar_find(NULL, 0, "/a", (const void **)&d, &n) == -ENOENT);
+  CHECK(walk(ar, one - 512) == -EINVAL && nseen == 0);
+  CHECK(walk(ar, 100) == 0 && nseen == 0); /* not even a header */
+  CHECK(walk(NULL, 0) == 0);
+  CHECK(walk(NULL, 512) == -EINVAL);
 
   /* a huge size field stops the walk instead of wrapping the offset */
-  reset();
+  ar_reset();
   h = add(NULL, "a", '0', "x");
   add(NULL, "b", '0', "y");
   finish();
@@ -107,14 +105,14 @@ static void test_malformed(void) {
   for (int i = 0; i < 512; i++)
     sum += h[i];
   snprintf((char *)h + 148, 8, "%06o", sum);
-  CHECK(find("/b", &d, &n) == -ENOENT);
+  CHECK(walk(ar, ar_len) == -EINVAL && member("/b") == NULL);
 }
 
 /* Random bytes never make it read outside the archive (ASan). */
 static void test_garbage(void) {
   srand(2);
   for (int round = 0; round < 2000; round++) {
-    reset();
+    ar_reset();
     add(NULL, "bin/sh", '0', "#!sh");
     add(NULL, "x", '0', "y");
     finish();
@@ -123,16 +121,15 @@ static void test_garbage(void) {
     size_t len = (size_t)rand() % (ar_len + 1);
     uint8_t *copy = malloc(len ? len : 1); /* exact size: overreads trip ASan */
     memcpy(copy, ar, len);
-    const void *d;
-    size_t n;
-    if (tar_find(copy, len, "/x", &d, &n) == 0)
-      CHECK((const uint8_t *)d + n <= copy + len);
+    walk(copy, len);
+    for (int i = 0; i < nseen; i++)
+      CHECK((const uint8_t *)seen[i].data + seen[i].size <= copy + len);
     free(copy);
   }
 }
 
 int main(void) {
-  test_find();
+  test_each();
   test_malformed();
   test_garbage();
   return CHECK_DONE();

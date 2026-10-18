@@ -2,6 +2,7 @@
 
 #include <abi/errno.h>
 #include <kstring.h>
+#include <path.h>
 #include <stdint.h>
 
 #define BLOCK 512
@@ -54,8 +55,9 @@ static size_t field_len(const char *f, size_t n) {
   return i;
 }
 
-/* Does the member named prefix + "/" + name (or just name) equal `want`? */
-static int name_is(const struct header *h, const char *want) {
+/* "/" + prefix + "/" + name into out, without a leading "./" or a trailing
+ * "/". -EINVAL if it doesn't fit. */
+static int member_path(const struct header *h, char *out, size_t size) {
   size_t plen = field_len(h->prefix, sizeof h->prefix);
   size_t nlen = field_len(h->name, sizeof h->name);
   const char *name = h->name;
@@ -63,40 +65,54 @@ static int name_is(const struct header *h, const char *want) {
     name += 2;
     nlen -= 2;
   }
-  size_t wlen = strlen(want);
-  if (plen == 0)
-    return nlen == wlen && memcmp(name, want, nlen) == 0;
-  return plen + 1 + nlen == wlen && memcmp(h->prefix, want, plen) == 0 &&
-         want[plen] == '/' && memcmp(h->name, want + plen + 1, nlen) == 0;
+  while (nlen > 0 && name[nlen - 1] == '/')
+    nlen--;
+  if (1 + plen + 1 + nlen + 1 > size)
+    return -EINVAL;
+  size_t n = 0;
+  out[n++] = '/';
+  if (plen > 0) {
+    memcpy(out + n, h->prefix, plen);
+    n += plen;
+    out[n++] = '/';
+  }
+  memcpy(out + n, name, nlen);
+  n += nlen;
+  if (n > 1 && out[n - 1] == '/')
+    n--; /* "./" alone: the root */
+  out[n] = '\0';
+  return 0;
 }
 
-int tar_find(const void *tar, size_t len, const char *path, const void **data,
-             size_t *size) {
-  if (tar == NULL || path == NULL || path[0] != '/')
-    return -ENOENT;
-  const char *want = path + 1;
-
+int tar_each(const void *tar, size_t len, tar_fn fn, void *ctx) {
+  if (tar == NULL)
+    return len == 0 ? 0 : -EINVAL;
   const uint8_t *base = tar;
   for (size_t off = 0; len - off >= BLOCK;) {
     const struct header *h = (const struct header *)(base + off);
     if (h->name[0] == '\0')
-      break; /* end-of-archive block */
+      return 0; /* end-of-archive block */
     if (memcmp(h->magic, "ustar", 5) != 0 || !checksum_ok(h))
-      break;
+      return -EINVAL;
     int64_t sz = octal(h->size, sizeof h->size);
     if (sz < 0 || (uint64_t)sz > len - off - BLOCK)
-      break; /* contents run past the end */
+      return -EINVAL; /* contents run past the end */
 
-    if ((h->typeflag == '0' || h->typeflag == '\0') && name_is(h, want)) {
-      *data = base + off + BLOCK;
-      *size = (size_t)sz;
-      return 0;
+    int file = h->typeflag == '0' || h->typeflag == '\0';
+    if (file || h->typeflag == '5') {
+      char path[PATH_MAX];
+      if (member_path(h, path, sizeof path) != 0)
+        return -EINVAL;
+      int err = fn(ctx, path, file ? TAR_FILE : TAR_DIR, base + off + BLOCK,
+                   file ? (size_t)sz : 0);
+      if (err != 0)
+        return err;
     }
     /* skip header + contents rounded up to a block, guarding the wrap */
     size_t skip = BLOCK + (((size_t)sz + BLOCK - 1) / BLOCK) * BLOCK;
     if (skip > len - off)
-      break;
+      return 0; /* no end-of-archive block, but nothing more either */
     off += skip;
   }
-  return -ENOENT;
+  return 0;
 }

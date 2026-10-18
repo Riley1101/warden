@@ -4,23 +4,15 @@
 #include <cpu.h>
 #include <elf.h>
 #include <file.h>
+#include <fs.h>
 #include <kstring.h>
 #include <pmm.h>
 #include <sched.h>
 #include <slab.h>
-#include <tar.h>
 #include <vmm.h>
-
-static const void *initrd;
-static size_t initrd_len;
 
 static uint64_t page_up(uint64_t x) {
   return (x + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-}
-
-void proc_init(const void *base, size_t len) {
-  initrd = base;
-  initrd_len = len;
 }
 
 /* Map a fresh zeroed frame at `virt`. */
@@ -109,22 +101,27 @@ struct loaded {
 
 static int load(const char *path, const char *const *argv, int argc,
                 struct loaded *out) {
-  const void *img;
-  size_t len;
-  if (tar_find(initrd, initrd_len, path, &img, &len) != 0)
-    return -ENOENT;
+  struct node *file;
+  int err = fs_open(path, O_RDONLY, &file);
+  if (err != 0)
+    return err;
   struct elf_image elf;
-  if (elf_parse(img, len, &elf) != 0)
-    return -ENOEXEC;
-
-  uint64_t pml4 = vmm_space_new();
-  if (pml4 == 0)
-    return -ENOMEM;
-  int err = load_segments(pml4, img, &elf);
+  const uint8_t *img = fs_data(file);
+  uint64_t pml4 = 0;
+  if (fs_is_dir(file))
+    err = -EACCES;
+  else if (elf_parse(img, fs_size(file), &elf) != 0)
+    err = -ENOEXEC;
+  else if ((pml4 = vmm_space_new()) == 0)
+    err = -ENOMEM;
+  if (err == 0)
+    err = load_segments(pml4, img, &elf);
   if (err == 0)
     err = load_stack(pml4, argv, argc, &out->rsp);
+  fs_put(file); /* its bytes are in the new address space now */
   if (err != 0) {
-    vmm_space_free(pml4);
+    if (pml4 != 0)
+      vmm_space_free(pml4);
     return err;
   }
   out->pml4 = pml4;
@@ -149,15 +146,18 @@ static const char *basename(const char *path) {
 
 int proc_spawn(const char *path, const char *const *argv, int argc,
                struct thread *parent) {
+  /* Interrupts off throughout, as in a syscall: the file can't change
+   * while it loads, and the child gets its files and heap, and we its pid,
+   * before it can run, die and be freed. */
+  uint64_t flags = irq_save();
   struct loaded l;
   int err = load(path, argv, argc, &l);
-  if (err != 0)
+  if (err != 0) {
+    irq_restore(flags);
     return err;
+  }
   struct trap_frame tf;
   trap_frame_user(&tf, l.rip, l.rsp);
-  /* Give it its files and heap, and read its pid, before it can run, die
-   * and be freed. */
-  uint64_t flags = irq_save();
   struct thread *t = thread_create_user(basename(path), l.pml4, &tf, parent);
   int pid = -ENOMEM;
   if (t != NULL) {

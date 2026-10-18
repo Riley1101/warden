@@ -5,7 +5,7 @@
 #include <kprintf.h>
 #include <limine.h>
 #include <pmm.h>
-#include <proc.h>
+#include <fs.h>
 #include <sched.h>
 #include <serial.h>
 #include <slab.h>
@@ -119,18 +119,22 @@ static void memory_setup(void) {
   kmalloc_init();
 }
 
-/* The initramfs is the one module (boot/limine.conf). Its contents sit in
- * executable-and-modules memory, which stays ours and HHDM-mapped; only the
- * response describing it is reclaimed, so read it now. */
+/* The initramfs is the one module (boot/limine.conf): unpacked into the
+ * filesystem now, while the response describing it is still ours (it is
+ * in bootloader-reclaimable memory). */
 static void initrd_setup(void) {
+  if (fs_init() != 0)
+    panic("fs: no memory for the root");
   struct limine_module_response *r = module_request.response;
   if (r == NULL || r->module_count == 0) {
-    kprintf("initrd: none, no programs to run\n");
+    kprintf("initrd: none, the filesystem is empty\n");
     return;
   }
   struct limine_file *f = r->modules[0];
-  proc_init(f->address, f->size);
-  kprintf("initrd: %lu KiB\n", f->size / 1024);
+  int err = fs_load_tar(f->address, f->size);
+  if (err != 0)
+    panic("initrd: unpacking failed: %d", err);
+  kprintf("initrd: %lu KiB unpacked\n", f->size / 1024);
 }
 
 /* Once we're off Limine's stack and page tables, its memory is ours. */

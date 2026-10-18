@@ -1,6 +1,10 @@
 #include <abi/syscall.h>
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
+#include <stdio.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -60,6 +64,25 @@ int kill(pid_t pid, int sig) {
     return -1;
   }
   return check(syscall3(SYS_kill, pid, 0, 0));
+}
+
+int open(const char *path, int flags) {
+  return check(syscall3(SYS_open, (long)path, flags, 0));
+}
+
+int mkdir(const char *path) { return check(syscall3(SYS_mkdir, (long)path, 0, 0)); }
+int unlink(const char *path) { return check(syscall3(SYS_unlink, (long)path, 0, 0)); }
+
+int rename(const char *from, const char *to) {
+  return check(syscall3(SYS_rename, (long)from, (long)to, 0));
+}
+
+int stat(const char *path, struct stat *st) {
+  return check(syscall3(SYS_stat, (long)path, (long)st, 0));
+}
+
+int getdent(int fd, struct dirent *d) {
+  return check(syscall3(SYS_getdent, fd, (long)d, 0));
 }
 
 /* The kernel's brk never fails outright: it answers with where the end is

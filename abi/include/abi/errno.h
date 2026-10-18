@@ -8,12 +8,16 @@
 #define EBADF 9         //  Bad file descriptor
 #define ECHILD 10       // No child processes
 #define ENOMEM 12       // Out of memory
+#define EACCES 13       // Permission denied (or: not executable)
 #define EFAULT 14       // Bad address
+#define EBUSY 16        // In use (the root directory)
 #define EEXIST 17       // File exists
 #define ENOTDIR 20      // Not a directory
 #define EISDIR 21       // Is a directory
 #define EINVAL 22       // Invalid argument
 #define EMFILE 24       // Too many open files
+#define EFBIG 27        // File too large
 #define EPIPE 32        // Broken pipe (no reader left)
 #define ENAMETOOLONG 36 // File name too long
 #define ENOSYS 38       // Function not implemented
+#define ENOTEMPTY 39    // Directory not empty

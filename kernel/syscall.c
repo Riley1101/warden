@@ -4,6 +4,7 @@
 #include <abi/syscall.h>
 #include <abi/wait.h>
 #include <file.h>
+#include <fs.h>
 #include <idt.h>
 #include <kprintf.h>
 #include <path.h>
@@ -69,6 +70,66 @@ static int64_t sys_fork(const uint64_t arg[6], struct trap_frame *f) {
   return child->tid;
 }
 
+/* A path argument, into `out` (PATH_MAX bytes). The fs normalizes it. */
+static int user_path(char *out, uint64_t uptr) {
+  int n = copy_str_from_user(out, (const char *)uptr, PATH_MAX);
+  return n < 0 ? n : 0;
+}
+
+/* open(path, flags): a descriptor. */
+static int64_t sys_open(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  char path[PATH_MAX];
+  int err = user_path(path, arg[0]);
+  return err != 0 ? err : fd_open(thread_current()->fd, path, (int)arg[1]);
+}
+
+static int64_t sys_mkdir(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  char path[PATH_MAX];
+  int err = user_path(path, arg[0]);
+  return err != 0 ? err : fs_mkdir(path);
+}
+
+static int64_t sys_unlink(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  char path[PATH_MAX];
+  int err = user_path(path, arg[0]);
+  return err != 0 ? err : fs_unlink(path);
+}
+
+static int64_t sys_rename(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  char from[PATH_MAX], to[PATH_MAX];
+  int err = user_path(from, arg[0]);
+  if (err == 0)
+    err = user_path(to, arg[1]);
+  return err != 0 ? err : fs_rename(from, to);
+}
+
+/* stat(path, struct stat *) */
+static int64_t sys_stat(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  char path[PATH_MAX];
+  struct stat st;
+  int err = user_path(path, arg[0]);
+  if (err == 0)
+    err = fs_stat(path, &st);
+  if (err == 0 && copy_to_user((void *)arg[1], &st, sizeof st) != 0)
+    err = -EFAULT;
+  return err;
+}
+
+/* getdent(fd, struct dirent *): 1 per entry, 0 after the last. */
+static int64_t sys_getdent(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  struct dirent de;
+  int r = fd_getdent(thread_current()->fd, (int)arg[0], &de);
+  if (r == 1 && copy_to_user((void *)arg[1], &de, sizeof de) != 0)
+    return -EFAULT;
+  return r;
+}
+
 /* brk(addr): the heap's new end; the old one if it can't move there. */
 static int64_t sys_brk(const uint64_t arg[6], struct trap_frame *f) {
   (void)f;
@@ -118,13 +179,11 @@ static int64_t sys_dup2(const uint64_t arg[6], struct trap_frame *f) {
 
 /* exec(path, argv): argv is a NULL-terminated array of strings, or NULL. */
 static int64_t sys_exec(const uint64_t arg[6], struct trap_frame *f) {
-  char path[PATH_MAX], norm[PATH_MAX];
+  char path[PATH_MAX];
   int n = copy_str_from_user(path, (const char *)arg[0], sizeof path);
   if (n < 0)
     return n;
-  int err = path_normalize(path, norm, sizeof norm);
-  if (err != 0)
-    return err == -EINVAL ? -ENOENT : err;
+  int err = 0;
 
   /* The strings, packed into one page; at most a page reaches the stack. */
   char *strings = kmalloc(PAGE_SIZE);
@@ -155,7 +214,7 @@ static int64_t sys_exec(const uint64_t arg[6], struct trap_frame *f) {
     used += n + 1;
   }
   if (err == 0)
-    err = proc_exec(f, norm, argv, argc);
+    err = proc_exec(f, path, argv, argc);
   kfree(strings);
   return err;
 }
@@ -197,6 +256,12 @@ static const struct syscall table[] = {
     [SYS_pipe] = {sys_pipe, CAP_ANY, "pipe"},
     [SYS_dup2] = {sys_dup2, CAP_ANY, "dup2"},
     [SYS_brk] = {sys_brk, CAP_ANY, "brk"},
+    [SYS_open] = {sys_open, CAP_ANY, "open"},
+    [SYS_mkdir] = {sys_mkdir, CAP_ANY, "mkdir"},
+    [SYS_unlink] = {sys_unlink, CAP_ANY, "unlink"},
+    [SYS_rename] = {sys_rename, CAP_ANY, "rename"},
+    [SYS_stat] = {sys_stat, CAP_ANY, "stat"},
+    [SYS_getdent] = {sys_getdent, CAP_ANY, "getdent"},
 };
 
 #define NSYSCALLS (sizeof table / sizeof table[0])

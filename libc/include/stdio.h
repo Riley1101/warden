@@ -16,3 +16,6 @@ int dprintf(int fd, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
 /* `s` and a newline to stdout. */
 int puts(const char *s);
+
+/* Move `from` to `to`, replacing a file (or an empty directory) there. */
+int rename(const char *from, const char *to);

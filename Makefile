@@ -56,8 +56,10 @@ KSRC_ASM := $(shell find kernel -name '*.asm')
 KOBJ     := $(KSRC_C:%.c=$(BUILD)/obj/%.o) $(KSRC_ASM:%.asm=$(BUILD)/obj/%.asm.o)
 
 # ---- QEMU flags -----------------------------------------------------------
-QEMUFLAGS := -M q35 -cpu max -m 512M -cdrom $(ISO) -no-reboot -display none \
-    -serial stdio
+# `make run QEMU_DISPLAY=none` for headless.
+QEMU_DISPLAY ?= gtk
+QEMUFLAGS := -M q35 -cpu max -m 512M -cdrom $(ISO) -no-reboot \
+    -display $(QEMU_DISPLAY) -serial stdio
 
 # ---- Dependencies ---------------------------------------------------------
 .PHONY: deps
@@ -183,14 +185,16 @@ test: host-test                      ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-HOST_TESTS := path fmt pmm pt slab elf tar malloc
+HOST_TESTS := path fmt pmm pt slab elf tar malloc fs
 $(HOST_BUILD)/test_path: kernel/path.c
 $(HOST_BUILD)/test_fmt: kernel/fmt.c
 $(HOST_BUILD)/test_pmm: kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_pt: kernel/pt.c kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_slab: kernel/slab.c kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_elf: kernel/elf.c
-$(HOST_BUILD)/test_tar: kernel/tar.c
+$(HOST_BUILD)/test_tar: kernel/tar.c tests/host/tar_builder.h
+$(HOST_BUILD)/test_fs: kernel/fs.c kernel/path.c kernel/tar.c kernel/slab.c kernel/pmm.c \
+    tests/host/lock_stub.c tests/host/tar_builder.h
 $(HOST_BUILD)/test_malloc: libc/malloc.c tests/host/libc_rename.h
 $(HOST_BUILD)/test_malloc: HOST_CFLAGS += -include tests/host/libc_rename.h \
     -Wno-alloc-size -Wno-alloc-size-larger-than # the tests ask for absurd sizes
@@ -212,7 +216,7 @@ distclean: clean                     ## Also remove fetched deps (keeps vendored
 	rm -rf limine
 
 compdb:                              ## Generate compile_commands.json for your LSP
-	bear -- $(MAKE) kernel
+	bear -- $(MAKE) TEST=1 iso # the test build: kernel, tests, libc, programs
 
 lsp: clean compdb                    ## Regenerate compile_commands.json from a clean build (fixes stale LSP)
 

@@ -14,6 +14,7 @@ ssize_t write(int fd, const void *buf, size_t n);
 int close(int fd);
 int pipe(int fds[2]);
 int dup2(int oldfd, int newfd);
+int unlink(const char *path); /* a file, or an empty directory */
 
 pid_t fork(void);
 pid_t getpid(void);

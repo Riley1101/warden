@@ -22,6 +22,12 @@
 #define SYS_dup2       11 /* (int oldfd, int newfd): newfd */
 #define SYS_brk        12 /* (void *end): the heap's end after the call;
                              unchanged if it can't move (brk(0) asks) */
+#define SYS_open       13 /* (const char *path, int flags): fd (abi/fs.h) */
+#define SYS_mkdir      14 /* (const char *path) */
+#define SYS_unlink     15 /* (const char *path): a file or empty directory */
+#define SYS_rename     16 /* (const char *from, const char *to) */
+#define SYS_stat       17 /* (const char *path, struct stat *st) */
+#define SYS_getdent    18 /* (int fd, struct dirent *d): 1, or 0 at the end */
 
 /* A new program starts with 0, 1 and 2 open on the console; fork shares
  * the parent's descriptors, and exec keeps them. */

@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 /*
- * Programs: ELF files in the initramfs, loaded into fresh address spaces.
+ * Programs: ELF files in the filesystem, loaded into fresh address spaces.
  *
  * A new process's stack (16 pages, top at USTACK_TOP) starts, at rsp:
  *   argc, argv[0] .. argv[argc - 1], NULL, NULL (empty envp)
@@ -17,11 +17,9 @@
 #define PROC_MAX_ARGS 32
 #define HEAP_MAX     (256UL << 20) /* how far brk may move past its start */
 
-/* The initramfs (a ustar archive), from the bootloader. */
-void proc_init(const void *initrd, size_t len);
-
 /* Start `path` with `argv` as a new process, child of `parent` (or NULL).
- * Returns its pid, or -ENOENT, -ENOEXEC, -E2BIG, -ENOMEM. */
+ * Returns its pid; fs_open's errors, -EACCES (a directory), -ENOEXEC,
+ * -E2BIG, -ENOMEM. */
 struct thread;
 int proc_spawn(const char *path, const char *const *argv, int argc,
                struct thread *parent);
