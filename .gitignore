@@ -9,3 +9,10 @@
 compile_commands.json
 
 /build-host
+
+/.env
+/host/__pycache__/
+/host/venv
+
+__pycache__/
+*.py[cod]
