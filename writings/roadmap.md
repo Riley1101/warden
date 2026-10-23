@@ -34,11 +34,12 @@ Four weeks. If something slips, protect in this order: escape suite > agent demo
 
 ## Week Two (Agent channel, labels, caps, audit)
 
-- [ ] COM2 receive with an interrupt, a ring buffer, and a blocking `/dev/agent`
+- [x] COM2 receive with an interrupt, a ring buffer, and a blocking `/dev/agent`
+      (no line discipline: bytes arrive as sent, for framing to sit on top)
 - [ ] Framed protocol `[u32 len][u8 type][payload]` with `ACTION, RESULT, ERROR`
 - [ ] `host/bridge.py` QEMU socket to LLM API, one JSONL log line per step
 - [ ] `agentd` in L1 mode: read an action, run `sh -c`, return stdout and exit code
-- [ ] QEMU: `-serial stdio -serial unix:/tmp/warden-agent.sock,server,nowait`. Debug output only on COM1.
+- [x] QEMU: `-serial stdio -serial unix:/tmp/warden-agent.sock,server,nowait`. Debug output only on COM1.
 - [ ] Provenance label in each process (`origin`, `session`, `capset`); inherited by `fork`, kept by `exec`
 - [ ] `SYS_mark_agent(session, caps)`: one-way, can only narrow; agentd marks the child before running the command
 - [ ] `cap.c`: `cap_check()` and component-aware `in_scope()` with host tests (`/home` vs `/homeevil`, `..`)

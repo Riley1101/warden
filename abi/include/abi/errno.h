@@ -3,6 +3,7 @@
 #define EPERM 1         // Operation not permitted
 #define ENOENT 2        // No such file or directory
 #define ESRCH 3         // No such process
+#define ENXIO 6         // No such device (the hardware isn't there)
 #define E2BIG 7         // Argument list too long
 #define ENOEXEC 8       // Exec format error
 #define EBADF 9         //  Bad file descriptor

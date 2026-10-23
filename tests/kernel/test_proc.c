@@ -1,5 +1,6 @@
 #ifdef WARDEN_TEST
 #include "ktest.h"
+#include "agent.h"
 #include "cpu.h"
 #include "file.h"
 #include "kprintf.h"
@@ -106,6 +107,16 @@ int test_proc_console(void) {
 
 int test_proc_libc(void) {
     RUN_EXPECT(W_EXITCODE(0), "/test/libc", "libc");
+    return 0;
+}
+
+/* The agent channel: bytes fed in here, read through /dev/agent there. */
+int test_agent_channel(void) {
+    uint64_t flags = irq_save();
+    for (const char *p = "ping\ntwo"; *p != '\0'; p++)
+        agent_feed(*p);
+    irq_restore(flags);
+    RUN_EXPECT(W_EXITCODE(0), "/test/agent", "agent");
     return 0;
 }
 

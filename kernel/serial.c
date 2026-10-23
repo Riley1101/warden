@@ -10,6 +10,7 @@
 #define LINE_CTRL   3
 #define MODEM_CTRL  4
 #define LINE_STATUS 5
+#define SCRATCH     7
 
 #define LSR_RX_READY 0x01
 #define LSR_TX_EMPTY 0x20
@@ -24,12 +25,26 @@ void serial_init(uint16_t port) {
     outb(port + MODEM_CTRL, 0x0B); /* DTR, RTS, OUT2 */
 }
 
-void serial_putc(uint16_t port, char c) {
-    if (c == '\n')
-        serial_putc(port, '\r');
+int serial_present(uint16_t port) {
+    /* The scratch register exists only to be written and read back. An
+     * absent UART is an unmapped port: every read gives 0xFF. */
+    outb(port + SCRATCH, 0xAE);
+    if (inb(port + SCRATCH) != 0xAE)
+        return 0;
+    outb(port + SCRATCH, 0x00);
+    return inb(port + SCRATCH) == 0x00;
+}
+
+void serial_putc_raw(uint16_t port, char c) {
     while ((inb(port + LINE_STATUS) & LSR_TX_EMPTY) == 0)
         ;
     outb(port + DATA, (uint8_t)c);
+}
+
+void serial_putc(uint16_t port, char c) {
+    if (c == '\n')
+        serial_putc_raw(port, '\r');
+    serial_putc_raw(port, c);
 }
 
 int serial_getc(uint16_t port) {

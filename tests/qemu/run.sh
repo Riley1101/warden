@@ -1,5 +1,7 @@
 #!/bin/sh
 # Boot a test ISO headless and turn QEMU's exit status into pass/fail.
+# COM2 is wired to nothing in particular, but it is wired: the agent
+# channel has to find a UART there, as it does on a real run.
 #   usage: tests/qemu/run.sh <iso> <serial-log>
 #
 # The timeout is a plain shell watchdog: no coreutils `timeout`, so this
@@ -12,6 +14,7 @@ qemu-system-x86_64 \
     -M q35 -cpu max -m 512M -cdrom "$ISO" \
     -no-reboot -display none \
     -serial file:"$LOG" \
+    -serial null \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 &
 qemu=$!
 

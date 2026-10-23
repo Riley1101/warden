@@ -1,3 +1,4 @@
+#include <agent.h>
 #include <apic.h>
 #include <cpu.h>
 #include <gdt.h>
@@ -186,6 +187,7 @@ static __attribute__((noreturn)) void kmain_late(void) {
 
   apic_init();
   console_init();
+  agent_init();
   sched_init();
   timer_init();
   __asm__ __volatile__("sti");

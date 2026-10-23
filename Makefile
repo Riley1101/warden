@@ -82,8 +82,12 @@ KOBJ     := $(KSRC_C:%.c=$(BUILD)/obj/%.o) $(KSRC_ASM:%.asm=$(BUILD)/obj/%.asm.o
 # Recursive (`=`), so the probe only runs when a recipe needs it.
 QEMU_DISPLAYS = $(shell $(QEMU) -display help 2>/dev/null)
 QEMU_DISPLAY ?= $(firstword $(filter $(QEMU_DISPLAYS),gtk cocoa sdl) none)
+# COM1 is the console and the debug output; COM2 is the agent channel,
+# waiting on a unix socket for host/bridge.py.
+AGENT_SOCK ?= /tmp/warden-agent.sock
 QEMUFLAGS = -M q35 -cpu max -m 512M -cdrom $(ISO) -no-reboot \
-    -display $(QEMU_DISPLAY) -serial stdio
+    -display $(QEMU_DISPLAY) -serial stdio \
+    -serial unix:$(AGENT_SOCK),server,nowait
 
 # ---- Dependencies ---------------------------------------------------------
 .PHONY: deps

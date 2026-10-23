@@ -1,9 +1,12 @@
 #include "file.h"
 
 #include <abi/errno.h>
+#include <agent.h>
 #include <apic.h>
 #include <fs.h>
 #include <idt.h>
+#include <kstring.h>
+#include <path.h>
 #include <pmm.h>
 #include <sched.h>
 #include <serial.h>
@@ -18,7 +21,7 @@ struct pipe {
   int readers, writers;
 };
 
-enum file_kind { F_CONSOLE, F_PIPE_READ, F_PIPE_WRITE, F_NODE };
+enum file_kind { F_CONSOLE, F_AGENT, F_PIPE_READ, F_PIPE_WRITE, F_NODE };
 
 struct file {
   enum file_kind kind;
@@ -32,8 +35,9 @@ struct file {
   uint64_t off;
 };
 
-/* One console, shared by everyone and never freed. */
+/* One console and one agent channel, shared by everyone, never freed. */
 static struct file console = {.kind = F_CONSOLE};
+static struct file agent = {.kind = F_AGENT};
 
 /*
  * Console input: COM1, polled from the timer tick (no receive interrupt
@@ -274,7 +278,7 @@ static int64_t node_write(struct file *f, const char *ubuf, size_t n) {
 /* ---- files ---------------------------------------------------------------- */
 
 static void file_put(struct file *f) {
-  if (f == &console || --f->refs > 0)
+  if (f == &console || f == &agent || --f->refs > 0)
     return;
   if (f->kind == F_NODE)
     fs_put(f->node);
@@ -284,7 +288,7 @@ static void file_put(struct file *f) {
 }
 
 static struct file *file_ref(struct file *f) {
-  if (f != &console)
+  if (f != &console && f != &agent)
     f->refs++;
   return f;
 }
@@ -293,6 +297,8 @@ int64_t file_read(struct file *f, void *ubuf, size_t n) {
   switch (f->kind) {
   case F_CONSOLE:
     return console_read(ubuf, n);
+  case F_AGENT:
+    return agent_read(ubuf, n);
   case F_PIPE_READ:
     return pipe_read(f->pipe, ubuf, n);
   case F_NODE:
@@ -306,6 +312,8 @@ int64_t file_write(struct file *f, const void *ubuf, size_t n) {
   switch (f->kind) {
   case F_CONSOLE:
     return console_write(ubuf, n);
+  case F_AGENT:
+    return agent_write(ubuf, n);
   case F_PIPE_WRITE:
     return pipe_write(f->pipe, ubuf, n);
   case F_NODE:
@@ -368,6 +376,17 @@ int fd_open(struct file **table, const char *path, int flags) {
   int fd = fd_free_slot(table, -1);
   if (fd < 0)
     return fd;
+
+  /* The one device there is. It lives beside the filesystem rather than
+   * in it: the tree comes from the initramfs, and a file an agent could
+   * create must never be mistaken for this. */
+  char norm[PATH_MAX];
+  if (path_normalize(path, norm, sizeof norm) == 0 &&
+      memcmp(norm, AGENT_PATH, sizeof AGENT_PATH) == 0) { /* with the NUL */
+    table[fd] = file_ref(&agent);
+    return fd;
+  }
+
   struct file *f = kzalloc(sizeof *f);
   if (f == NULL)
     return -ENOMEM;

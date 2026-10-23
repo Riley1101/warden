@@ -19,6 +19,8 @@ __attribute__((unused)) static const char *errname(int e) {
     return "ENOENT";
   case ESRCH:
     return "ESRCH";
+  case ENXIO:
+    return "ENXIO";
   case E2BIG:
     return "E2BIG";
   case ENOEXEC:
