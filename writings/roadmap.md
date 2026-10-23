@@ -20,8 +20,14 @@ Four weeks. If something slips, protect in this order: escape suite > agent demo
 - [x] pipes and dup2
 - [x] Minimal libc: string functions, snprintf, malloc over brk, syscall wrappers with errno
 - [x] Writable in-memory fs loaded from initramfs: create, write, `unlink`, `rename`, `mkdir`, `stat`.
-- [ ] Tools: `ls, cat, echo, rm, mv, mkdir, wc, ps`
-- [ ] `sh` with `sh -c "..."` and simple pipelines
+- [x] Tools: `ls, cat, echo, rm, mv, mkdir, wc, ps` in `/bin`, plus `SYS_ps` and a
+      console that takes input (COM1 receive interrupt, line editing)
+- [x] `sh` with `sh -c "..."`, a script file, or a prompt: pipelines, `<`, `>`,
+      `>>`, `;`, `&&`, quoting, and `exit`. The kernel starts it as pid 1.
+- [x] `cd`/`pwd` in the shell only: the kernel still has no working directory,
+      so every path a syscall sees is absolute and stated in full.
+
+- [ ] Background jobs in `sh`: lone `&` ends a pipeline without waiting, zombies reaped
 
 **Done when:** `sh -c "ls /bin | wc -l"` works, and a bad pointer or fault in ring 3 kills only that process.
 
@@ -73,6 +79,7 @@ scoped to `/home/work` can't delete `/bin/ls` through `sh -c`, with the denial i
 ## Further (after the four weeks)
 
 - [ ] Memory limits, more profiles, COM3 audit mirror
+      at the next prompt (today the parser rejects a single `&`)
 - [ ] L2 typed tools (`list_dir`, `read_file`, `write_file`, `delete`, `move`, `spawn`, `ps`)
 - [ ] Feedback levels 0/1/2 as an experimental variable
 - [ ] Expand to ~100 tasks, two models, three repetitions; ablations (file labels, limits)

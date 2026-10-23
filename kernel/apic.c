@@ -49,11 +49,25 @@
 #define PIT_HZ       1193182
 #define CALIBRATE_MS 10
 
+/*
+ * I/O APIC: the legacy ISA interrupts (the UARTs, among others) arrive
+ * here, not at the local APIC. Two 32-bit windows: write a register
+ * number to IOREGSEL, read or write it through IOWIN. Its address is the
+ * PC-standard one, which is what QEMU's q35 uses; a machine that moved it
+ * would need its MADT read.
+ */
+#define IOAPIC_PHYS   0xFEC00000UL
+#define IOAPIC_REGSEL 0x00
+#define IOAPIC_WIN    0x10
+#define IOAPIC_REDTBL(gsi) (0x10 + 2 * (uint32_t)(gsi))
+#define REDIR_MASKED  (1U << 16)
+
 /* 8259 PIC data ports (interrupt mask registers) */
 #define PIC1_DATA 0x21
 #define PIC2_DATA 0xA1
 
 static volatile uint8_t *lapic;
+static volatile uint8_t *ioapic;
 
 static uint32_t lapic_read(uint32_t reg) {
   return *(volatile uint32_t *)(lapic + reg);
@@ -61,6 +75,16 @@ static uint32_t lapic_read(uint32_t reg) {
 
 static void lapic_write(uint32_t reg, uint32_t val) {
   *(volatile uint32_t *)(lapic + reg) = val;
+}
+
+static uint32_t ioapic_read(uint32_t reg) {
+  *(volatile uint32_t *)(ioapic + IOAPIC_REGSEL) = reg;
+  return *(volatile uint32_t *)(ioapic + IOAPIC_WIN);
+}
+
+static void ioapic_write(uint32_t reg, uint32_t val) {
+  *(volatile uint32_t *)(ioapic + IOAPIC_REGSEL) = reg;
+  *(volatile uint32_t *)(ioapic + IOAPIC_WIN) = val;
 }
 
 /* Spurious interrupts set no in-service bit: an EOI here would acknowledge
@@ -97,6 +121,25 @@ void apic_init(void) {
 
   kprintf("lapic: id=%u ver=0x%x base=%lx\n", apic_id(),
           lapic_read(LAPIC_VERSION) & 0xFF, phys);
+
+  virt = (uint64_t)phys_to_virt(IOAPIC_PHYS);
+  err = vmm_map(virt, IOAPIC_PHYS, PTE_W | PTE_PCD | PTE_PWT | PTE_NX);
+  if (err != 0 && err != -EEXIST)
+    panic("ioapic: map %lx failed: %d", IOAPIC_PHYS, err);
+  ioapic = (volatile uint8_t *)virt;
+}
+
+void apic_route_irq(uint8_t gsi, uint8_t vector) {
+  /* High half: which CPU. Low half: the vector, delivered as a fixed
+   * interrupt, active high and edge triggered (the ISA default), with the
+   * mask bit cleared last. */
+  ioapic_write(IOAPIC_REDTBL(gsi) + 1, apic_id() << 24);
+  ioapic_write(IOAPIC_REDTBL(gsi), vector);
+}
+
+void apic_mask_irq(uint8_t gsi) {
+  ioapic_write(IOAPIC_REDTBL(gsi),
+               ioapic_read(IOAPIC_REDTBL(gsi)) | REDIR_MASKED);
 }
 
 void apic_eoi(void) { lapic_write(LAPIC_EOI, 0); }

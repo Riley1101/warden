@@ -28,6 +28,8 @@
 #define SYS_rename     16 /* (const char *from, const char *to) */
 #define SYS_stat       17 /* (const char *path, struct stat *st) */
 #define SYS_getdent    18 /* (int fd, struct dirent *d): 1, or 0 at the end */
+#define SYS_ps         19 /* (struct procinfo *buf, size_t max): how many
+                             were written (abi/proc.h) */
 
 /* A new program starts with 0, 1 and 2 open on the console; fork shares
  * the parent's descriptors, and exec keeps them. */

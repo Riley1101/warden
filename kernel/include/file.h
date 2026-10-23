@@ -6,13 +6,32 @@
 /*
  * Open files and file descriptor tables. A file is shared (refcounted) by
  * every descriptor that names it, across fork and dup2. Kinds: the console
- * (write goes to COM1; read is end-of-file), pipe ends, and fs nodes.
+ * (write goes to COM1, read takes a typed line), pipe ends, and fs nodes.
  *
  * Callers keep interrupts off (syscalls run with them off): a pipe
  * operation may sleep, and tables and refcounts have no other lock.
  */
 
 #define NFD 16 /* descriptors per process */
+
+/* The vector COM1's interrupt line is delivered on. */
+#define T_CONSOLE 0x24
+
+/*
+ * Start taking console input on COM1's interrupt. Call after apic_init().
+ */
+void console_init(void);
+
+/*
+ * Take whatever has been typed on COM1: echo it, gather it into a line,
+ * and hand finished lines to anyone reading the console. Called from the
+ * console interrupt, and from the timer tick as a backstop, with
+ * interrupts off.
+ */
+void console_poll(void);
+
+/* One byte as if it had been typed. Interrupts must be off. */
+void console_feed(int c);
 
 struct file;
 

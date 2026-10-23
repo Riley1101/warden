@@ -1,5 +1,7 @@
 #ifdef WARDEN_TEST
 #include "ktest.h"
+#include "cpu.h"
+#include "file.h"
 #include "kprintf.h"
 #include "pmm.h"
 #include "proc.h"
@@ -82,15 +84,34 @@ int test_proc_dup2(void) {
     return 0;
 }
 
-/* Programs start with 0, 1, 2 on the console: echo's line shows up. */
+/* Type `s` at the console, as the serial poll would. */
+static void type(const char *s) {
+    uint64_t flags = irq_save();
+    for (; *s != '\0'; s++)
+        console_feed(*s);
+    irq_restore(flags);
+}
+
+/* Programs start with 0, 1, 2 on the console: echo's line shows up, and
+ * what is typed reaches a reader a line at a time, with backspace rubbing
+ * a character out and Ctrl-D ending the input. */
 int test_proc_console(void) {
     RUN_EXPECT(W_EXITCODE(0), "/test/echo", "echo", "console", "ok");
-    RUN_EXPECT(W_EXITCODE(0), "/test/count", "count"); /* stdin: EOF */
+
+    type("hex\bllo\n"); /* "hello\n": six bytes */
+    type("\x04");        /* nothing typed: end of input */
+    RUN_EXPECT(W_EXITCODE(6), "/test/count", "count");
     return 0;
 }
 
 int test_proc_libc(void) {
     RUN_EXPECT(W_EXITCODE(0), "/test/libc", "libc");
+    return 0;
+}
+
+/* The shell in /bin, running pipelines and redirections (tests/user). */
+int test_shell(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/shell", "shell");
     return 0;
 }
 

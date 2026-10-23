@@ -289,6 +289,31 @@ int sched_nthreads(void) {
   return n;
 }
 
+int sched_snapshot(struct procinfo *out, int max) {
+  uint64_t flags = irq_save();
+  int n = 0;
+  struct thread *t = current;
+  do {
+    if (t->state != T_DEAD && n < max) {
+      out[n] = (struct procinfo){
+          .pid = t->tid,
+          .ppid = t->parent != NULL ? t->parent->tid : 0,
+          .state = t->state == T_RUNNING    ? P_RUNNING
+                   : t->state == T_RUNNABLE ? P_RUNNABLE
+                   : t->state == T_ZOMBIE   ? P_ZOMBIE
+                                            : P_SLEEPING,
+          .kernel = t->pml4 == 0,
+      };
+      memcpy(out[n].name, t->name, sizeof out[n].name);
+      out[n].name[sizeof out[n].name - 1] = '\0';
+      n++;
+    }
+    t = t->next;
+  } while (t != current);
+  irq_restore(flags);
+  return n;
+}
+
 /* A dead thread is never `current` here (we are running), so its stack is
  * no longer in use: switch_to finished with it when it switched away. */
 void sched_reap(void) {

@@ -1,6 +1,7 @@
 #include "timer.h"
 
 #include <apic.h>
+#include <file.h>
 #include <idt.h>
 #include <kprintf.h>
 #include <sched.h>
@@ -10,6 +11,7 @@ static volatile uint64_t ticks;
 static void on_tick(struct trap_frame *f) {
   (void)f;
   ticks++;
+  console_poll(); /* no receive interrupt yet: look for typed input */
   apic_eoi(); /* before sched_tick: it may switch away for a whole quantum */
   sched_tick();
 }

@@ -11,5 +11,6 @@ void free(void *p);
 
 __attribute__((noreturn)) void exit(int code);
 
-/* Decimal, with an optional sign; stops at the first non-digit. */
+/* Decimal, after any leading whitespace and an optional sign; stops at
+ * the first non-digit. */
 int atoi(const char *s);

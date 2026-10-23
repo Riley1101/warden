@@ -5,6 +5,8 @@
 #include <kprintf.h>
 #include <limine.h>
 #include <pmm.h>
+#include <proc.h>
+#include <file.h>
 #include <fs.h>
 #include <sched.h>
 #include <serial.h>
@@ -183,15 +185,23 @@ static __attribute__((noreturn)) void kmain_late(void) {
   kprintf("warden: BOOT ok\n");
 
   apic_init();
+  console_init();
   sched_init();
   timer_init();
   __asm__ __volatile__("sti");
 
 #ifdef WARDEN_TEST
   ktest_run_all();
+#else
+  /* The shell is pid 1: an orphan, so the scheduler frees it if it dies. */
+  const char *argv[] = {"sh"};
+  int pid = proc_spawn("/bin/sh", argv, 1, NULL);
+  if (pid < 0)
+    kprintf("warden: /bin/sh: cannot start (%d)\n", pid);
 #endif /* ifdef WARDEN_TEST */
-  /* nothing to run yet: idle forever */
+  /* The boot thread has nothing left to do: idle, reaping the dead. */
   while (1) {
+    sched_reap();
     __asm__ __volatile__("hlt");
   }
 }

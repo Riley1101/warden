@@ -13,14 +13,34 @@ NASM    := nasm
 HOST_CC := cc
 QEMU    := qemu-system-x86_64
 
+# Apple's clang ships an ASan runtime that hangs at startup on macOS 26, so
+# prefer a Homebrew LLVM clang for the host tests when one is installed.
+# Override with `make host-test HOST_CC=<compiler>`.
+ifeq ($(shell uname -s),Darwin)
+    BREW_CLANG := $(firstword $(wildcard /opt/homebrew/opt/llvm/bin/clang \
+        /usr/local/opt/llvm/bin/clang))
+    ifneq ($(BREW_CLANG),)
+        HOST_CC := $(BREW_CLANG)
+    endif
+endif
+
 # ---- Paths ----------------------------------------------------------------
 BUILD  := build$(if $(TEST),-test)
 ISO    := $(BUILD)/warden.iso
 KERNEL := $(BUILD)/kernel.elf
 
 HOST_BUILD := build-host
+# Not every warning switch exists in both gcc and clang: ask the compiler.
+cc-option = $(shell $(HOST_CC) $(1) -Werror -x c -c /dev/null -o /dev/null \
+    2>/dev/null && echo $(1))
+
+# `make host-test SAN=0` builds without the sanitizers, for a host whose
+# ASan runtime doesn't work.
+HOST_SAN := $(if $(filter 0,$(SAN)),,-fsanitize=address,undefined \
+    -fno-sanitize-recover=all)
+
 HOST_CFLAGS := -std=gnu11 -g -O1 -Wall -Wextra -Werror \
-							 -fsanitize=address,undefined -fno-sanitize-recover=all \
+							 $(HOST_SAN) \
 							 -fno-omit-frame-pointer \
 							 -Ikernel/include -Iabi/include -Itests/host
 
@@ -56,9 +76,13 @@ KSRC_ASM := $(shell find kernel -name '*.asm')
 KOBJ     := $(KSRC_C:%.c=$(BUILD)/obj/%.o) $(KSRC_ASM:%.asm=$(BUILD)/obj/%.asm.o)
 
 # ---- QEMU flags -----------------------------------------------------------
-# `make run QEMU_DISPLAY=none` for headless.
-QEMU_DISPLAY ?= gtk
-QEMUFLAGS := -M q35 -cpu max -m 512M -cdrom $(ISO) -no-reboot \
+# The display backend is whatever this qemu was actually built with: gtk on a
+# typical Linux build, cocoa on macOS, sdl otherwise, none if it has no GUI.
+# Override explicitly with `make run QEMU_DISPLAY=none` for headless.
+# Recursive (`=`), so the probe only runs when a recipe needs it.
+QEMU_DISPLAYS = $(shell $(QEMU) -display help 2>/dev/null)
+QEMU_DISPLAY ?= $(firstword $(filter $(QEMU_DISPLAYS),gtk cocoa sdl) none)
+QEMUFLAGS = -M q35 -cpu max -m 512M -cdrom $(ISO) -no-reboot \
     -display $(QEMU_DISPLAY) -serial stdio
 
 # ---- Dependencies ---------------------------------------------------------
@@ -132,12 +156,22 @@ $(LIBC): $(LIBC_OBJ)
 INITRD     := $(BUILD)/initrd.tar
 INITRD_DIR := $(BUILD)/initrd
 INITRD_FILES :=
+
+# /bin: the shell and its tools, one program per userland/*.c
+USER_PROGS   := $(patsubst userland/%.c,%,$(wildcard userland/*.c))
+INITRD_FILES += $(USER_PROGS:%=$(INITRD_DIR)/bin/%)
+
 ifdef TEST
 TEST_PROGS   := $(patsubst tests/user/%.c,%,$(wildcard tests/user/*.c))
 INITRD_FILES += $(TEST_PROGS:%=$(INITRD_DIR)/test/%) $(INITRD_DIR)/test/notelf
 endif
 
 $(INITRD_DIR)/test/%: $(BUILD)/user/obj/tests/user/%.o $(USER_CRT0) $(LIBC) \
+    userland/user.ld
+	@mkdir -p $(@D)
+	$(LD) $(USER_LDFLAGS) $(USER_CRT0) $< $(LIBC) -o $@
+
+$(INITRD_DIR)/bin/%: $(BUILD)/user/obj/userland/%.o $(USER_CRT0) $(LIBC) \
     userland/user.ld
 	@mkdir -p $(@D)
 	$(LD) $(USER_LDFLAGS) $(USER_CRT0) $< $(LIBC) -o $@
@@ -196,8 +230,9 @@ $(HOST_BUILD)/test_tar: kernel/tar.c tests/host/tar_builder.h
 $(HOST_BUILD)/test_fs: kernel/fs.c kernel/path.c kernel/tar.c kernel/slab.c kernel/pmm.c \
     tests/host/lock_stub.c tests/host/tar_builder.h
 $(HOST_BUILD)/test_malloc: libc/malloc.c tests/host/libc_rename.h
+# the tests ask for absurd sizes; the -Walloc-size* warnings are gcc-only
 $(HOST_BUILD)/test_malloc: HOST_CFLAGS += -include tests/host/libc_rename.h \
-    -Wno-alloc-size -Wno-alloc-size-larger-than # the tests ask for absurd sizes
+    $(call cc-option,-Wno-alloc-size) $(call cc-option,-Wno-alloc-size-larger-than)
 
 host-test: $(HOST_TESTS:%=$(HOST_BUILD)/test_%)   ## Unit tests on the host, with sanitizers
 	@for t in $^; do ./$$t || exit 1; done

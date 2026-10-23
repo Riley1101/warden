@@ -23,6 +23,13 @@ uint32_t apic_id(void);
 /* Send `vector` to this CPU as a fixed interrupt. */
 void apic_self_ipi(uint8_t vector);
 
+/* Deliver the legacy interrupt line `gsi` (IRQ 4 is COM1) to this CPU as
+ * `vector`, through the I/O APIC, and unmask it. */
+void apic_route_irq(uint8_t gsi, uint8_t vector);
+
+/* Stop delivering `gsi`. */
+void apic_mask_irq(uint8_t gsi);
+
 /*
  * Measure the LAPIC timer against the PIT. Returns timer ticks per
  * millisecond at divide-by-16. Busy-waits ~10 ms; leaves the timer stopped.

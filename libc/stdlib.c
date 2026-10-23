@@ -7,6 +7,8 @@ void exit(int code) { _exit(code); }
 
 int atoi(const char *s) {
   int sign = 1, v = 0;
+  while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r')
+    s++; /* leading whitespace, as C says: "   9" is 9 */
   if (*s == '-' || *s == '+')
     sign = *s++ == '-' ? -1 : 1;
   for (; *s >= '0' && *s <= '9'; s++)

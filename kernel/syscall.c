@@ -1,6 +1,7 @@
 #include "syscall.h"
 
 #include <abi/errno.h>
+#include <abi/proc.h>
 #include <abi/syscall.h>
 #include <abi/wait.h>
 #include <file.h>
@@ -20,6 +21,9 @@
  * dispatch() refuses an entry left at CAP_UNDECLARED, so forgetting to
  * think about a new syscall's permission fails closed.
  */
+/* ps() reports at most this many processes per call. */
+#define PS_MAX 64
+
 enum cap {
   CAP_UNDECLARED = 0,
   CAP_ANY, /* every process may make this call */
@@ -243,6 +247,25 @@ static int64_t sys_kill(const uint64_t arg[6], struct trap_frame *f) {
   return 0;
 }
 
+/* ps(struct procinfo *buf, size_t max): how many processes were written. */
+static int64_t sys_ps(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  size_t max = arg[1];
+  if (max > PS_MAX)
+    max = PS_MAX;
+  if (max == 0)
+    return 0;
+  struct procinfo *buf = kmalloc(max * sizeof *buf);
+  if (buf == NULL)
+    return -ENOMEM;
+  int n = sched_snapshot(buf, (int)max);
+  int64_t r = n;
+  if (copy_to_user((void *)arg[0], buf, (size_t)n * sizeof *buf) != 0)
+    r = -EFAULT;
+  kfree(buf);
+  return r;
+}
+
 static const struct syscall table[] = {
     [SYS_exit] = {sys_exit, CAP_ANY, "exit"},
     [SYS_getpid] = {sys_getpid, CAP_ANY, "getpid"},
@@ -262,6 +285,7 @@ static const struct syscall table[] = {
     [SYS_rename] = {sys_rename, CAP_ANY, "rename"},
     [SYS_stat] = {sys_stat, CAP_ANY, "stat"},
     [SYS_getdent] = {sys_getdent, CAP_ANY, "getdent"},
+    [SYS_ps] = {sys_ps, CAP_ANY, "ps"},
 };
 
 #define NSYSCALLS (sizeof table / sizeof table[0])

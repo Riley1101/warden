@@ -62,7 +62,8 @@ void ktest_fail(void) { qemu_exit(QEMU_EXIT_FAIL); }
   X(proc_pipe)                                                                 \
   X(proc_dup2)                                                                 \
   X(proc_libc)                                                                 \
-  X(proc_fs)
+  X(proc_fs)                                                                   \
+  X(shell)
 
 #define KTEST_DECL(name) int test_##name(void);
 #define KTEST_ENTRY(name) {#name, test_##name},

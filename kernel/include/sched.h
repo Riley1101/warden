@@ -1,5 +1,6 @@
 #pragma once
 
+#include <abi/proc.h>
 #include <file.h>
 #include <idt.h>
 #include <stdint.h>
@@ -15,7 +16,7 @@
 
 #define KSTACK_SIZE   (16 * 1024)
 #define SCHED_QUANTUM 5 /* timer ticks a thread runs before preemption */
-#define THREAD_NAME   32
+#define THREAD_NAME   PROCINFO_NAME /* ps reports it as is */
 
 enum thread_state {
   T_RUNNABLE,
@@ -98,6 +99,10 @@ void thread_set_name(struct thread *t, const char *name);
 
 /* Threads still alive (not zombie or dead), including the caller. */
 int sched_nthreads(void);
+
+/* Describe up to `max` threads (every one but the dead), starting with
+ * the caller's; returns how many were written. */
+int sched_snapshot(struct procinfo *out, int max);
 
 /* Free dead threads. Thread context only: it calls kfree, which an
  * interrupt handler must not (the allocator has no lock). */

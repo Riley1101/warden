@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
+#include <sys/proc.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -100,4 +101,8 @@ void *sbrk(intptr_t inc) {
   if (inc != 0 && brk(old + inc) != 0)
     return (void *)-1;
   return old;
+}
+
+int ps(struct procinfo *buf, size_t max) {
+  return check(syscall3(SYS_ps, (long)buf, (long)max, 0));
 }

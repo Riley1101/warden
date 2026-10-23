@@ -11,6 +11,7 @@
 #define MODEM_CTRL  4
 #define LINE_STATUS 5
 
+#define LSR_RX_READY 0x01
 #define LSR_TX_EMPTY 0x20
 
 void serial_init(uint16_t port) {
@@ -29,6 +30,16 @@ void serial_putc(uint16_t port, char c) {
     while ((inb(port + LINE_STATUS) & LSR_TX_EMPTY) == 0)
         ;
     outb(port + DATA, (uint8_t)c);
+}
+
+int serial_getc(uint16_t port) {
+    if ((inb(port + LINE_STATUS) & LSR_RX_READY) == 0)
+        return -1;
+    return inb(port + DATA);
+}
+
+void serial_enable_rx_irq(uint16_t port) {
+    outb(port + INT_ENABLE, 0x01); /* data available */
 }
 
 void serial_puts(uint16_t port, const char *s) {

@@ -1,7 +1,9 @@
 #include "file.h"
 
 #include <abi/errno.h>
+#include <apic.h>
 #include <fs.h>
+#include <idt.h>
 #include <pmm.h>
 #include <sched.h>
 #include <serial.h>
@@ -33,6 +35,24 @@ struct file {
 /* One console, shared by everyone and never freed. */
 static struct file console = {.kind = F_CONSOLE};
 
+/*
+ * Console input: COM1, polled from the timer tick (no receive interrupt
+ * yet). Typing is line-buffered here, as a terminal in canonical mode:
+ * characters are echoed and gathered in `line`, backspace rubs one out,
+ * and a whole line (with its newline) reaches readers at once. Ctrl-D
+ * sends what is typed, or end-of-file on an empty line.
+ */
+#define LINE_MAX 256
+#define CIN_SIZE 1024
+
+static struct {
+  char buf[CIN_SIZE];
+  size_t head, count; /* next byte to read, bytes buffered */
+  char line[LINE_MAX];
+  size_t len; /* bytes typed since the last newline */
+  int eof;    /* Ctrl-D on an empty line: one read returns 0 */
+} cin;
+
 static size_t min(size_t a, size_t b) { return a < b ? a : b; }
 
 /* ---- the console ---------------------------------------------------------- */
@@ -48,6 +68,102 @@ static int64_t console_write(const char *ubuf, size_t n) {
     done += k;
   }
   return n;
+}
+
+/* One typed byte into the ring; dropped if nobody is keeping up. */
+static void cin_put(char c) {
+  if (cin.count == CIN_SIZE)
+    return;
+  cin.buf[(cin.head + cin.count) % CIN_SIZE] = c;
+  cin.count++;
+}
+
+/* The gathered line (plus `extra`, a newline or nothing) to the readers. */
+static void cin_commit(char extra) {
+  for (size_t i = 0; i < cin.len; i++)
+    cin_put(cin.line[i]);
+  if (extra != '\0')
+    cin_put(extra);
+  cin.len = 0;
+}
+
+/*
+ * One typed byte, as a terminal in canonical mode sees it. Separate from
+ * console_poll so tests can type into the console without a UART.
+ * Interrupts must be off: it wakes the readers.
+ */
+void console_feed(int c) {
+  switch (c) {
+  case '\r':
+  case '\n':
+    serial_putc(COM1, '\n');
+    cin_commit('\n');
+    thread_wakeup(&cin);
+    break;
+  case 0x7f: /* backspace, however the terminal spells it */
+  case '\b':
+    if (cin.len > 0) {
+      cin.len--;
+      serial_puts(COM1, "\b \b");
+    }
+    break;
+  case 0x04: /* Ctrl-D: send the line, or end the input if there is none */
+    if (cin.len == 0)
+      cin.eof = 1;
+    else
+      cin_commit('\0');
+    thread_wakeup(&cin);
+    break;
+  default:
+    if (c >= ' ' && c < 0x7f && cin.len < LINE_MAX) {
+      cin.line[cin.len++] = (char)c;
+      serial_putc(COM1, (char)c);
+    }
+    break;
+  }
+}
+
+void console_poll(void) {
+  int c;
+  while ((c = serial_getc(COM1)) >= 0)
+    console_feed(c);
+}
+
+static void on_console_irq(struct trap_frame *f) {
+  (void)f;
+  console_poll();
+  apic_eoi();
+}
+
+void console_init(void) {
+  idt_register(T_CONSOLE, on_console_irq);
+  apic_route_irq(IRQ_COM1, T_CONSOLE);
+  serial_enable_rx_irq(COM1);
+}
+
+static int64_t console_read(char *ubuf, size_t n) {
+  if (n == 0)
+    return 0;
+  while (cin.count == 0) {
+    if (cin.eof) {
+      cin.eof = 0;
+      return 0;
+    }
+    thread_sleep(&cin);
+  }
+  size_t got = 0;
+  int err = 0;
+  while (got < n && cin.count > 0) {
+    size_t k = min(min(n - got, cin.count), CIN_SIZE - cin.head);
+    if (copy_to_user(ubuf + got, cin.buf + cin.head, k) != 0) {
+      err = -EFAULT;
+      break;
+    }
+    cin.head = (cin.head + k) % CIN_SIZE;
+    cin.count -= k;
+    got += k;
+  }
+  return got > 0 ? (int64_t)got : err;
 }
 
 /* ---- pipes ---------------------------------------------------------------- */
@@ -176,7 +292,7 @@ static struct file *file_ref(struct file *f) {
 int64_t file_read(struct file *f, void *ubuf, size_t n) {
   switch (f->kind) {
   case F_CONSOLE:
-    return 0; /* no input yet */
+    return console_read(ubuf, n);
   case F_PIPE_READ:
     return pipe_read(f->pipe, ubuf, n);
   case F_NODE:
