@@ -200,6 +200,12 @@ static __attribute__((noreturn)) void kmain_late(void) {
   int pid = proc_spawn("/bin/sh", argv, 1, NULL);
   if (pid < 0)
     kprintf("warden: /bin/sh: cannot start (%d)\n", pid);
+
+  /* agentd holds /dev/agent open and runs what the host sends. */
+  const char *agentd_argv[] = {"agentd"};
+  pid = proc_spawn("/bin/agentd", agentd_argv, 1, NULL);
+  if (pid < 0)
+    kprintf("warden: /bin/agentd: cannot start (%d)\n", pid);
 #endif /* ifdef WARDEN_TEST */
   /* The boot thread has nothing left to do: idle, reaping the dead. */
   while (1) {

@@ -7,8 +7,7 @@ from openai import OpenAI, OpenAIError
 from pathlib import Path
 from dotenv import load_dotenv
 
-project_root = Path(__file__).resolve().parent.parent
-load_dotenv(project_root / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/"
 MAX_COMMAND_LENGTH = 4096
