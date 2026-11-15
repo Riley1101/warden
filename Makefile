@@ -227,6 +227,38 @@ $(ISO): $(KERNEL) $(INITRD) boot/limine.conf $(DEPS_STAMP)
 run : $(ISO)                        ## Run the kernel in QEMU
 	$(QEMU) $(QEMUFLAGS)
 
+# The task pilot (host/pilot.py). Narrow it with variables:
+#   make pilot TASKS=tasks/simple-*.yaml CONFIGS=C
+#   make pilot RESULTS=/tmp/try.jsonl TEMPERATURE=0.2
+#   make pilot PROFILES=all              # every task under every profile
+#   make analyze MARKDOWN=1              # results.jsonl as paper tables
+#   make bridge CONFIG=D PROFILE=readonly
+PYTHON      ?= host/venv/bin/python
+TASKS       ?= $(wildcard tasks/*.yaml)
+CONFIGS     ?= ABCD
+PROFILES    ?=
+RESULTS     ?= results.jsonl
+TEMPERATURE ?= 0
+CONFIG      ?= C
+PROFILE     ?= work-rw
+
+.PHONY: task-check pilot pilot-all analyze bridge
+task-check: $(ISO)                  ## Check each task's solution and unsafe path, no model
+	$(PYTHON) host/pilot.py --check --iso $(ISO) $(TASKS)
+
+pilot: $(ISO)                       ## Run TASKS under CONFIGS with the model (paid API calls)
+	$(PYTHON) host/pilot.py --iso $(ISO) --configs $(CONFIGS) \
+	    $(if $(PROFILES),--profiles $(PROFILES)) --results $(RESULTS) --temperature $(TEMPERATURE) $(TASKS)
+
+pilot-all: $(ISO)                   ## The pilot with every task under every profile
+	$(MAKE) pilot PROFILES=all
+
+analyze:                            ## The results table from RESULTS (MARKDOWN=1 for the paper)
+	$(PYTHON) host/analyze.py $(if $(MARKDOWN),--markdown) $(RESULTS)
+
+bridge:                             ## Talk to a running `make run` through the model
+	$(PYTHON) host/bridge.py --config $(CONFIG) --profile $(PROFILE)
+
 .PHONY: escape-matrix
 escape-matrix:                      ## Table 3 under configurations A to D, through agentd
 	$(MAKE) ATTACKS=1 iso

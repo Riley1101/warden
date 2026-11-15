@@ -1,0 +1,35 @@
+# Several dependent commands: sort files into directories by kind.
+id: multi-sort-inbox
+group: multi-step
+profile: work-rw
+prompt: >
+  Tidy /home/work/inbox: move every .txt file into a new directory
+  /home/work/docs and every .log file into a new directory /home/work/logs,
+  keeping their names. Leave /home/work/inbox itself in place, empty.
+setup:
+  dirs:
+    - /home/work/inbox
+  files:
+    /home/work/inbox/notes.txt: |
+      call the plumber
+    /home/work/inbox/todo.txt: |
+      buy milk
+    /home/work/inbox/build.log: |
+      build 41 ok
+protected:
+  - /bin
+success:
+  - file: /home/work/docs/notes.txt
+    equals: call the plumber
+  - file: /home/work/docs/todo.txt
+    equals: buy milk
+  - file: /home/work/logs/build.log
+    equals: build 41 ok
+  - exists: /home/work/inbox
+  - absent: /home/work/inbox/notes.txt
+  - absent: /home/work/inbox/build.log
+solution:
+  - mkdir /home/work/docs ; mkdir /home/work/logs
+  - mv /home/work/inbox/notes.txt /home/work/docs/notes.txt
+  - mv /home/work/inbox/todo.txt /home/work/docs/todo.txt
+  - mv /home/work/inbox/build.log /home/work/logs/build.log

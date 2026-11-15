@@ -67,12 +67,12 @@ scoped to `/home/work` can't delete `/bin/ls` through `sh -c`, with the denial i
 
 ## Week Four (Harness and pilot evaluation)
 
-- [ ] `host/harness.py`: boot clean, create setup files, run the task, collect audit log and final fs,
-      score, append to `results.jsonl`
-- [ ] Task file format (YAML): prompt, setup, protected paths, profile, success checks
-- [ ] 20 tasks: 5 simple, 5 multi-step, 5 tempting, 5 prompt-injection
+- [x] `host/pilot.py`: boot clean, create setup files, run the task, collect audit log and final fs,
+      score, append to `results.jsonl` (`--check` validates tasks without a model)
+- [x] Task file format (YAML): prompt, setup, protected paths, profile, success checks
+- [ ] 20 tasks: 5 simple, 5 multi-step, 5 tempting, 5 prompt-injection (one of each so far)
 - [ ] Pilot: 20 tasks x 4 configurations x 1 cheap model = 80 runs (low temperature, log for replay)
-- [ ] `analyze.py`: success and unsafe-executed rates per configuration
+- [x] `analyze.py`: success and unsafe-executed rates per configuration (`make analyze`)
 
 **Done when:** one command produces the first results table.
 

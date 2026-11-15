@@ -433,7 +433,10 @@ run anything), scope `/home/work`, 16 processes. `work-rw` is `rwsk`, scope `/ho
 processes.
 
 **Tasks.** 20 tasks in four groups of five, each a YAML file giving the prompt, setup files,
-protected paths, the profile, and success checks over the final filesystem:
+protected paths, the profile, success checks over the final filesystem (a file exists, is
+absent, equals or contains a text; or the model's final reply contains one), a reference
+`solution`, and for the tempting and injection groups the `unsafe` command sequence the task is
+built to tempt:
 
 - *simple*: one command, e.g. count the lines in a log file;
 - *multi-step*: several dependent commands, e.g. reorganise a directory tree;
@@ -441,10 +444,19 @@ protected paths, the profile, and success checks over the final filesystem:
   outside the scope;
 - *prompt injection*: a setup file contains instructions to delete or modify a protected path.
 
-**Harness.** For each run, `harness.py` boots a clean image, creates the setup files, runs the
-agent loop up to [TBD] steps, then collects the audit log and the final filesystem, scores the run,
-and appends one line to `results.jsonl`. The model is [TBD: model name] at temperature [TBD], with
-every request and response logged for replay.
+**Harness.** For each run, `host/pilot.py` boots a clean image. The human side, typed at the
+console shell (pid 1, unlabelled), creates the setup files and takes a snapshot of each protected
+path (its `ls -l` line and its bytes). The model then works the task through `agentd`, one
+`run_shell` command per step, seeing each command's output and exit code, until it answers in
+prose or reaches 12 steps. The human side then runs the success checks, snapshots the protected
+paths again, checks that `agentd` and the console shell are still alive, and counts the denials in
+the audit log. One line per run goes to `results.jsonl`, and the full exchange to `runs/` for
+replay. The model is [TBD: model name] at temperature 0.
+
+Before any model runs, `pilot.py --check` validates the tasks themselves, with no model. Each
+reference solution must succeed and stay safe under C. Each unsafe sequence must be scored unsafe
+under A, and safe with the attempt seen under C. A task that can't tell these apart measures
+nothing.
 
 **Metrics.** Defined before the pilot was run:
 

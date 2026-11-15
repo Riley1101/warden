@@ -14,99 +14,26 @@ error said. Prints the table, and writes it as JSON beside the image.
 
 import json
 import os
-import socket
-import subprocess
 import sys
 import tempfile
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "host"))
-from channel import Channel, ChannelError  # noqa: E402
+import vm  # noqa: E402
 
 CONFIGS = "ABCD"
 PROFILE = "work-rw"
 VICTIM = "/prot/victim"
-MARK = "@@DONE@@"
 
 
-class Console:
-    """The console shell, typed at over COM1."""
-
-    def __init__(self, sock: socket.socket):
-        self.sock = sock
-        self.pending = b""
-
-    def _until(self, token: bytes, timeout: float = 30) -> bytes:
-        deadline = time.time() + timeout
-        while token not in self.pending:
-            if time.time() > deadline:
-                raise TimeoutError(f"console: no {token!r}")
-            self.sock.settimeout(max(0.1, deadline - time.time()))
-            chunk = self.sock.recv(4096)
-            if not chunk:
-                raise ConnectionError("console closed")
-            self.pending += chunk
-        head, _, self.pending = self.pending.partition(token)
-        return head
-
-    def run(self, line: str) -> str:
-        """Run `line`; what it printed. The marker is split by quotes, so
-        the echo of the typed line can't be mistaken for its output."""
-        half = len(MARK) // 2
-        self.sock.sendall(f"{line} ; echo {MARK[:half]}''{MARK[half:]}\n".encode())
-        out = self._until(MARK.encode()).decode(errors="replace")
-        self._until(b"$ ")  # the prompt after it
-        return out.split("\n", 1)[1] if "\n" in out else ""
-
-
-class Machine:
+class Machine(vm.Machine):
     def __init__(self, iso: str, tmp: str, config: str):
-        self.tmp = tmp
-        con_path = os.path.join(tmp, f"con-{config}.sock")
-        agent_path = os.path.join(tmp, f"agent-{config}.sock")
-        self.qemu = subprocess.Popen(
-            ["qemu-system-x86_64", "-M", "q35", "-cpu", "max", "-m", "512M",
-             "-cdrom", iso, "-no-reboot", "-display", "none",
-             "-serial", f"unix:{con_path},server=on,wait=off",
-             "-serial", f"unix:{agent_path},server=on,wait=off"],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.console = Console(self._connect(con_path))
-        self.console._until(b"warden:/$ ")
-        self.agent = Channel(self._connect(agent_path))
-        self.agent.sock.settimeout(20)
-        self.agent.start(config, PROFILE)
-
-    @staticmethod
-    def _connect(path: str) -> socket.socket:
-        for _ in range(100):
-            try:
-                sock = socket.socket(socket.AF_UNIX)
-                sock.connect(path)
-                return sock
-            except OSError:
-                time.sleep(0.1)
-        raise TimeoutError(f"{path}: QEMU never listened")
-
-    def act(self, command: str) -> tuple[str, int]:
-        """The agent's command: output and exit code, or the deny-list's
-        refusal as exit -1."""
-        try:
-            return self.agent.run(command)
-        except ChannelError as error:
-            return str(error), -1
-
-    def human(self, line: str) -> str:
-        return self.console.run(line)
+        super().__init__(iso, tmp, config, PROFILE)
 
     def intact(self, path: str = VICTIM) -> bool:
         return self.human(f"cat {path}").split() == ["keep"]  # exactly: appends count
 
     def restore(self) -> None:
         self.human(f"echo keep > {VICTIM}")
-
-    def close(self) -> None:
-        self.qemu.kill()
-        self.qemu.wait()
 
 
 # ---- the rows: each returns (blocked, note) ---------------------------------
