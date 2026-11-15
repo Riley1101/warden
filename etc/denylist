@@ -1,0 +1,12 @@
+# agentd's deny-list: configurations B and D check every command line
+# against it before anything runs, as a wrapper around a shell would.
+#
+#   word TEXT       no word of the line may contain TEXT
+#   writes CMD ...  CMD changes the files it is given
+#
+# Whatever is written, by a command listed here or by > and >>, must be
+# an absolute path inside the profile's scope, and the profile must have
+# w at all.
+word ..
+word /dev/agent
+writes rm mv mkdir

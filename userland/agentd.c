@@ -1,3 +1,5 @@
+#include "frame.h"
+#include "policy.h"
 #include "util.h"
 
 #include <fcntl.h>
@@ -6,39 +8,70 @@
 #include <sys/wait.h>
 
 /*
- * The agent daemon: the guest end of /dev/agent.
+ * The agent daemon: the guest end of /dev/agent, speaking the framed
+ * protocol in frame.h.
  *
- * The host sends one command per line. For each, agentd runs `sh -c LINE`
- * and writes back everything it printed (stdout and stderr together),
- * then one last line, "\0EXIT <code>\n". The NUL keeps that line from
- * being mistaken for output. A command killed by a signal reports
- * 128 plus the signal, as a shell would.
+ * The host starts with a SESSION naming the configuration and profile,
+ * then sends ACTIONs. For each, agentd runs `sh -c ACTION`, sends back
+ * everything it printed (stdout and stderr together) in OUTPUT frames,
+ * then a RESULT with the exit code. A command killed by a signal reports
+ * 128 plus the signal, as a shell would. A frame agentd won't act on
+ * gets an ERROR, and nothing runs.
  *
- * Every command runs as an agent: the child marks itself before exec,
- * so sh and all it starts carry the label. agentd itself stays human.
+ * Configurations (paper, §5.1), for the profile the SESSION names:
+ *   A  commands run as a human; the prompt is the only defence
+ *   B  agentd checks each line against /etc/denylist first (policy.h)
+ *   C  the child marks itself an agent before exec, so sh and all it
+ *      starts carry the profile's label, and the kernel enforces it
+ *   D  both
+ * agentd itself always stays human.
  */
 
-#define LINE_MAX 4096
-
-/* The one profile until profiles come from a config file. */
+#define PROFILES      "/etc/profiles"
+#define DENYLIST      "/etc/denylist"
 #define AGENT_SESSION 1
-#define AGENT_CAPS    CAP_ALL
-#define AGENT_SCOPE   "/home/work"
-#define AGENT_MAX_PROCS 32 /* in the session at once: a fork bomb stops here */
+#define WORK_DIR      "/home/work" /* where every profile's work happens */
 
-/* The first newline in the `n` bytes at `buf`, or NULL (libc has no memchr). */
-static char *find_newline(char *buf, size_t n) {
-  for (size_t i = 0; i < n; i++)
-    if (buf[i] == '\n')
-      return buf + i;
-  return NULL;
+static int agent;   /* the channel */
+static char config; /* 'A' to 'D' once the SESSION came, else 0 */
+static struct profile profile;
+static struct denylist deny;
+
+static int checks(void) { return config == 'B' || config == 'D'; }
+static int marks(void) { return config == 'C' || config == 'D'; }
+
+static void send(uint8_t type, const void *payload, uint32_t len) {
+  uint8_t hdr[FRAME_HDR];
+  frame_header(hdr, type, len);
+  write_all(agent, (const char *)hdr, sizeof hdr);
+  write_all(agent, payload, len);
 }
 
-/* Run `line` under sh -c, its output written to `agent`. */
-static void run(int agent, char *line) {
+static void send_error(const char *why) { send(F_ERROR, why, strlen(why)); }
+
+/* "agentd: " and the formatted reason, as an ERROR. */
+__attribute__((format(printf, 1, 2))) static void refuse(const char *fmt,
+                                                         ...) {
+  char why[256];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = snprintf(why, sizeof why, "agentd: ");
+  vsnprintf(why + n, sizeof why - (size_t)n, fmt, ap);
+  va_end(ap);
+  send_error(why);
+}
+
+static void send_result(int code) {
+  uint8_t le[4];
+  frame_put32(le, (uint32_t)code);
+  send(F_RESULT, le, sizeof le);
+}
+
+/* Run `line` under sh -c, its output sent as OUTPUT frames. */
+static void run(const char *line) {
   int fds[2];
   if (pipe(fds) != 0) {
-    dprintf(agent, "agentd: pipe failed\n");
+    send_error("agentd: pipe failed");
     return;
   }
 
@@ -46,7 +79,7 @@ static void run(int agent, char *line) {
   if (pid < 0) {
     close(fds[0]);
     close(fds[1]);
-    dprintf(agent, "agentd: fork failed\n");
+    send_error("agentd: fork failed");
     return;
   }
   if (pid == 0) {
@@ -55,12 +88,12 @@ static void run(int agent, char *line) {
     close(fds[0]);
     close(fds[1]);
     close(agent);
-    if (mark_agent(AGENT_SESSION, AGENT_CAPS, AGENT_SCOPE,
-                   AGENT_MAX_PROCS) != 0) {
+    if (marks() && mark_agent(AGENT_SESSION, profile.caps, profile.scope,
+                              profile.max_procs) != 0) {
       complain("agentd", "mark_agent", errno);
       _exit(126); /* never run a command unlabeled */
     }
-    char *const argv[] = {"sh", "-c", line, NULL};
+    char *const argv[] = {"sh", "-c", (char *)line, NULL};
     execv("/bin/sh", argv);
     _exit(127);
   }
@@ -69,17 +102,107 @@ static void run(int agent, char *line) {
   char buf[256];
   ssize_t n;
   while ((n = read(fds[0], buf, sizeof buf)) > 0)
-    write_all(agent, buf, (size_t)n);
+    send(F_OUTPUT, buf, (uint32_t)n);
   close(fds[0]);
 
   int status = 0;
   wait(&status);
-  int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
-  dprintf(agent, "%cEXIT %d\n", '\0', code);
+  send_result(WIFEXITED(status) ? WEXITSTATUS(status)
+                                : 128 + WTERMSIG(status));
+}
+
+/* All of `path` into `buf[size]`, terminated: 0, or an errno. */
+static int slurp(const char *path, char *buf, size_t size) {
+  int fd = open(path, O_RDONLY);
+  if (fd < 0)
+    return errno;
+  size_t len = 0;
+  ssize_t n;
+  while (len + 1 < size && (n = read(fd, buf + len, size - 1 - len)) > 0)
+    len += (size_t)n;
+  close(fd);
+  buf[len] = '\0';
+  return len + 1 < size ? 0 : EFBIG;
+}
+
+/* The profile `name`, and the deny-list if `with_deny`: 1, or 0 once
+ * the reason it couldn't has gone to the host. */
+static int load(const char *name, int with_deny) {
+  static char text[4096];
+  int e, found, line;
+  if ((e = slurp(PROFILES, text, sizeof text)) != 0) {
+    refuse("%s: %s", PROFILES, errname(e));
+    return 0;
+  }
+  if ((found = profile_find(text, name, &profile)) < 0) {
+    refuse("%s: line %d is not \"name caps scope max-procs\"", PROFILES,
+           -found);
+    return 0;
+  }
+  if (found == 0) {
+    refuse("unknown profile %s", name);
+    return 0;
+  }
+  if (!with_deny)
+    return 1;
+  if ((e = slurp(DENYLIST, text, sizeof text)) != 0) {
+    refuse("%s: %s", DENYLIST, errname(e));
+    return 0;
+  }
+  if ((line = deny_parse(text, &deny)) != 0) {
+    refuse("%s: line %d is not a rule", DENYLIST, line);
+    return 0;
+  }
+  return 1;
+}
+
+/* "<config> <profile>": set once, for the rest of the boot (a serial
+ * line has no disconnect agentd could see to start over on). The files
+ * are read here, not at start, so a mistake in them comes back as an
+ * ERROR the host sees. */
+static void session(const char *p) {
+  if (config != 0)
+    refuse("session already set");
+  else if (p[0] < 'A' || p[0] > 'D' || p[1] != ' ')
+    refuse("configuration must be A, B, C or D");
+  else if (load(p + 2, p[0] == 'B' || p[0] == 'D')) {
+    config = p[0];
+    send_result(0);
+  }
+}
+
+/* One frame from the host, answered with a RESULT or an ERROR. */
+static void handle(const struct frame *f) {
+  if (f->type != F_SESSION && f->type != F_ACTION) {
+    send_error("agentd: unexpected frame type");
+    return;
+  }
+  /* Both payloads are text: one NUL-terminated copy, refused if it
+   * holds a NUL of its own (sh would see a shorter command). */
+  static char text[FRAME_MAX + 1];
+  memcpy(text, f->payload, f->len);
+  text[f->len] = '\0';
+  if (strlen(text) != f->len) {
+    send_error("agentd: NUL in payload");
+    return;
+  }
+
+  if (f->type == F_SESSION)
+    session(text);
+  else if (config == 0)
+    send_error("agentd: no session");
+  else {
+    char word[POLICY_WORD];
+    const char *why = checks() ? deny_check(&deny, &profile, text, word) : NULL;
+    if (why != NULL)
+      refuse("deny-list: %s: %s", why, word);
+    else
+      run(text);
+  }
 }
 
 int main(void) {
-  int agent = open("/dev/agent", O_RDWR);
+  agent = open("/dev/agent", O_RDWR);
   if (agent < 0) {
     complain("agentd", "/dev/agent", errno);
     return 1;
@@ -87,30 +210,27 @@ int main(void) {
 
   /* The scope has to exist for the agent to work in it. */
   if ((mkdir("/home") != 0 && errno != EEXIST) ||
-      (mkdir(AGENT_SCOPE) != 0 && errno != EEXIST)) {
-    complain("agentd", AGENT_SCOPE, errno);
+      (mkdir(WORK_DIR) != 0 && errno != EEXIST)) {
+    complain("agentd", WORK_DIR, errno);
     return 1;
   }
 
-  char line[LINE_MAX];
-  size_t len = 0; /* bytes held in `line`, not yet run */
+  static struct frame_reader r;
   for (;;) {
-    ssize_t n = read(agent, line + len, sizeof line - len);
+    size_t room;
+    uint8_t *space = frame_space(&r, &room);
+    ssize_t n = read(agent, space, room);
     if (n <= 0)
       return 1;
-    len += (size_t)n;
+    frame_added(&r, (size_t)n);
 
-    char *nl;
-    while ((nl = find_newline(line, len)) != NULL) {
-      *nl = '\0';
-      run(agent, line);
-      size_t used = (size_t)(nl - line) + 1;
-      memmove(line, line + used, len - used);
-      len -= used;
-    }
-    if (len == sizeof line) {
-      dprintf(agent, "agentd: line too long\n");
-      len = 0; /* drop it: the host sees the complaint, not a hang */
+    struct frame f;
+    int k;
+    while ((k = frame_next(&r, &f)) != 0) {
+      if (k < 0)
+        send_error("agentd: frame too long");
+      else
+        handle(&f);
     }
   }
 }

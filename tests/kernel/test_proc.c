@@ -145,6 +145,12 @@ int test_file_labels(void) {
     return 0;
 }
 
+/* The escape suite: every attack in the paper's Table 3, one line each. */
+int test_escape(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/escape", "escape");
+    return 0;
+}
+
 /* The shell in /bin, running pipelines and redirections (tests/user). */
 int test_shell(void) {
     RUN_EXPECT(W_EXITCODE(0), "/test/shell", "shell");

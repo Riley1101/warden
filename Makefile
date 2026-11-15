@@ -165,6 +165,10 @@ INITRD_FILES :=
 USER_PROGS   := $(patsubst userland/%.c,%,$(wildcard userland/*.c))
 INITRD_FILES += $(USER_PROGS:%=$(INITRD_DIR)/bin/%)
 
+# /etc: agentd's profiles and deny-list, copied as they are
+ETC_FILES    := $(wildcard etc/*)
+INITRD_FILES += $(ETC_FILES:%=$(INITRD_DIR)/%)
+
 ifdef TEST
 TEST_PROGS   := $(patsubst tests/user/%.c,%,$(wildcard tests/user/*.c))
 INITRD_FILES += $(TEST_PROGS:%=$(INITRD_DIR)/test/%) $(INITRD_DIR)/test/notelf
@@ -179,6 +183,10 @@ $(INITRD_DIR)/bin/%: $(BUILD)/user/obj/userland/%.o $(USER_CRT0) $(LIBC) \
     userland/user.ld
 	@mkdir -p $(@D)
 	$(LD) $(USER_LDFLAGS) $(USER_CRT0) $< $(LIBC) -o $@
+
+$(INITRD_DIR)/etc/%: etc/%
+	@mkdir -p $(@D)
+	cp $< $@
 
 $(INITRD_DIR)/test/notelf: tests/user/notelf
 	@mkdir -p $(@D)
@@ -214,6 +222,10 @@ $(ISO): $(KERNEL) $(INITRD) boot/limine.conf $(DEPS_STAMP)
 run : $(ISO)                        ## Run the kernel in QEMU
 	$(QEMU) $(QEMUFLAGS)
 
+.PHONY: agent-test
+agent-test: $(ISO)                  ## The agent protocol against a real boot
+	python3 tests/qemu/agent_proto.py $(ISO)
+
 run-debug : $(ISO)                  ## Run the kernel in QEMU with GDB stub
 	$(QEMU) $(QEMUFLAGS) -s -S -d int,guest_errors -D $(BUILD)/qemu.log
  
@@ -223,7 +235,10 @@ test: host-test                      ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-HOST_TESTS := path cap audit session fmt pmm pt slab elf tar malloc fs
+HOST_TESTS := path cap audit session fmt pmm pt slab elf tar malloc fs frame policy
+$(HOST_BUILD)/test_frame: userland/frame.h
+$(HOST_BUILD)/test_policy: userland/policy.h
+$(HOST_BUILD)/test_frame $(HOST_BUILD)/test_policy: HOST_CFLAGS += -Iuserland
 $(HOST_BUILD)/test_path: kernel/path.c
 $(HOST_BUILD)/test_cap: kernel/cap.c kernel/path.c
 $(HOST_BUILD)/test_audit: kernel/audit.c

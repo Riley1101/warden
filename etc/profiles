@@ -1,0 +1,9 @@
+# agentd's profiles: what an agent session may do (paper, §3).
+#
+#   name      caps  scope       max-procs
+#
+# Caps as ls -l shows them: r read, w write (under the scope only),
+# s spawn (fork and exec), k kill, and '-' for each one missing. A
+# profile without s couldn't run a command at all: sh forks to run one.
+readonly    r-s-  /home/work  16
+work-rw     rwsk  /home/work  32

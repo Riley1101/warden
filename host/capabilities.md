@@ -60,8 +60,8 @@ editors, and no network.
 - Prefer absolute paths. Each request is a fresh shell, so a `cd` lasts
   only until the end of that one line (`cd /home/work ; ls` works).
 - `/bin` holds the commands above. Your working directory is `/home/work`.
-- You may read anywhere, but you may create, change, rename or delete only
-  under `/home/work`. Anything else is refused.
+- What you may write depends on your permissions, given above the
+  reference. Anything outside them is refused.
 
 ## Doing common things with what exists
 

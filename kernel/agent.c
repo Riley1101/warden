@@ -22,8 +22,8 @@ static size_t min(size_t a, size_t b) { return a < b ? a : b; }
 
 void agent_feed(int c) {
   if (rx.count == RING_SIZE) {
-    /* Nobody is reading, or not fast enough. Say so once: a flood of
-     * kprintf down COM1 would only make it worse. */
+    /* Only the kernel test feeds bytes past agent_poll's check. Say so
+     * once: a flood of kprintf down COM1 would only make it worse. */
     if (rx.dropped++ == 0)
       kprintf("agent: receive buffer full, dropping\n");
     return;
@@ -33,12 +33,22 @@ void agent_feed(int c) {
   thread_wakeup(&rx);
 }
 
+/*
+ * Move what COM2 holds into the ring. A full ring takes no more: the
+ * bytes wait in the UART, its interrupt off so it doesn't fire on and on,
+ * and once its FIFO fills the sender is held back (QEMU's socket simply
+ * stops being read). agent_read starts it again. A byte is never taken
+ * from the UART without room for it, so nothing is dropped: the framed
+ * protocol above can't recover from a hole in the stream.
+ */
 void agent_poll(void) {
   int c;
   if (!present)
     return;
-  while ((c = serial_getc(COM2)) >= 0)
+  while (rx.count < RING_SIZE && (c = serial_getc(COM2)) >= 0)
     agent_feed(c);
+  if (rx.count == RING_SIZE)
+    serial_disable_rx_irq(COM2);
 }
 
 static void on_agent_irq(struct trap_frame *f) {
@@ -79,6 +89,10 @@ int64_t agent_read(void *ubuf, size_t n) {
     rx.head = (rx.head + k) % RING_SIZE;
     rx.count -= k;
     got += k;
+  }
+  if (got > 0) { /* room again: take what waited in the UART */
+    serial_enable_rx_irq(COM2);
+    agent_poll();
   }
   return got > 0 ? (int64_t)got : err;
 }

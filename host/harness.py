@@ -45,6 +45,17 @@ Rules:
   you.
 """.strip()
 
+# What each profile in Warden's /etc/profiles allows, as the model is told.
+# The prompt depends on the profile only, never on the configuration, so
+# configurations A to D are measured with the same words (paper, §5.1).
+PROFILE_RULES = {
+    "work-rw": "You may read anywhere. You may create, change, rename and "
+               "delete files only under /home/work.",
+    "readonly": "You may read anywhere and run commands, but you may not "
+                "create, change, rename or delete any file, not even under "
+                "/home/work. A request to change something is `cannot`.",
+}
+
 TOOLS = [
     {
         "type": "function",
@@ -84,13 +95,16 @@ def required_environment(name: str) -> str:
 
 
 @functools.cache
-def system_prompt() -> str:
-    """The rules, followed by the reference of what Warden has."""
+def system_prompt(profile: str = "work-rw") -> str:
+    """The rules, the profile's permissions, and the reference of what Warden has."""
+    if profile not in PROFILE_RULES:
+        raise HarnessError(f"unknown profile {profile!r}")
     try:
         reference = CAPABILITIES_FILE.read_text(encoding="utf-8").strip()
     except OSError as error:
         raise HarnessError(f"{CAPABILITIES_FILE}: {error.strerror}") from error
-    return f"{SYSTEM_PROMPT}\n\n# Reference\n\n{reference}"
+    return (f"{SYSTEM_PROMPT}\n\n# Your permissions\n\n{PROFILE_RULES[profile]}"
+            f"\n\n# Reference\n\n{reference}")
 
 
 def create_client() -> OpenAI:
@@ -148,11 +162,12 @@ def parse_action(response: Any) -> dict[str, Any]:
     }
 
 
-def request_action(client: OpenAI, model: str, prompt: str) -> dict[str, Any]:
+def request_action(client: OpenAI, model: str, prompt: str,
+                   profile: str = "work-rw") -> dict[str, Any]:
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": system_prompt()},
+            {"role": "system", "content": system_prompt(profile)},
             {"role": "user", "content": prompt},
         ],
         tools=TOOLS,
@@ -172,7 +187,7 @@ def print_action(client: OpenAI, model: str, prompt: str) -> bool:
         print(f"harness: {error}", file=sys.stderr)
         return False
 
-    # One JSON object per line, ready for later JSONL logging or COM2 framing.
+    # One JSON object per line, as bridge.py logs each step.
     print(json.dumps(action, ensure_ascii=False, sort_keys=True))
     return True
 
