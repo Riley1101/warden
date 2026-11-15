@@ -31,11 +31,13 @@
 #define SYS_ps         19 /* (struct procinfo *buf, size_t max): how many
                              were written (abi/proc.h) */
 #define SYS_mark_agent 20 /* (uint32_t session, uint32_t caps, const char
-                             *scope): make this process an agent; only
-                             narrows (abi/cap.h) */
+                             *scope, uint32_t max_procs): make this process
+                             an agent; only narrows (abi/cap.h) */
 #define SYS_audit_read 21 /* (struct audit_record *buf, size_t max, uint64_t
                              after): how many, those after seq `after`;
                              humans only (abi/audit.h) */
+#define SYS_kill_session 22 /* (uint32_t session): kill every process in it;
+                               how many. Humans only */
 
 /* A new program starts with 0, 1 and 2 open on the console; fork shares
  * the parent's descriptors, and exec keeps them. */

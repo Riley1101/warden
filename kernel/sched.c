@@ -1,11 +1,13 @@
 #include "sched.h"
 
 #include <abi/errno.h>
+#include <abi/wait.h>
 #include <cpu.h>
 #include <file.h>
 #include <gdt.h>
 #include <kprintf.h>
 #include <kstring.h>
+#include <session.h>
 #include <slab.h>
 #include <vmm.h>
 
@@ -276,6 +278,22 @@ int thread_wait(int *status) {
   }
 }
 
+int sched_kill_session(uint32_t session) {
+  uint64_t flags = irq_save();
+  int n = 0;
+  struct thread *t = current;
+  do {
+    if (t->label.origin == ORIGIN_AGENT && t->label.session == session &&
+        t->state != T_ZOMBIE && t->state != T_DEAD && t != current) {
+      die(t, W_SIGNALED(SIGKILL));
+      n++;
+    }
+    t = t->next;
+  } while (t != current);
+  irq_restore(flags);
+  return n;
+}
+
 int sched_nthreads(void) {
   uint64_t flags = irq_save();
   int n = 0;
@@ -323,6 +341,8 @@ void sched_reap(void) {
   while (t != current) {
     if (t->state == T_DEAD) {
       prev->next = t->next;
+      if (t->label.origin == ORIGIN_AGENT)
+        session_leave(t->label.session); /* it counted until now */
       if (t->pml4 != 0)
         vmm_space_free(t->pml4); /* not in CR3: we are running, it isn't */
       kfree(t->kstack);

@@ -12,6 +12,7 @@
 
 #define AUDIT_DENIED 0 /* a call, or a path in one, was refused */
 #define AUDIT_MARK   1 /* mark_agent succeeded: `need` holds the caps given */
+#define AUDIT_KILL   2 /* kill_session ended `session`, by a human */
 
 #define AUDIT_NAME 16
 #define AUDIT_PATH 256

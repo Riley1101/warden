@@ -1,6 +1,7 @@
 #pragma once
 
 #include <abi/fs.h>
+#include <cap.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -57,6 +58,21 @@ uint64_t fs_size(struct node *n);
 /* The `index`th entry of directory `n`: 1 and *out filled, or 0 past the
  * last one. */
 int fs_readdir(struct node *n, uint64_t index, struct dirent *out);
+
+/*
+ * The writer label: who wrote a file, for exec to hand on (cap.h). Zeroed
+ * (human) for a new file and everything from the initramfs. A write by
+ * an agent narrows it by the agent's label (label_meet), with its
+ * session's process limit; a human's write leaves it be. Sticky: only
+ * unlinking the file clears it, and rename moves it along.
+ *
+ * fs_note_writer: before a write by a process labelled `l`, its session
+ * allowing `max_procs`. 0, or -ECAPDENIED if another session's agent
+ * wrote it: a file takes one session's label, never two.
+ */
+int fs_note_writer(struct node *n, const struct label *l, uint32_t max_procs);
+/* The writer label of `n`, and its session limit into *max_procs. */
+const struct label *fs_writer(struct node *n, uint32_t *max_procs);
 
 /* A file's whole contents, for exec (valid until it is written or put). */
 const void *fs_data(struct node *n);

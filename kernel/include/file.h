@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct node; /* fs.h */
+
 /*
  * Open files and file descriptor tables. A file is shared (refcounted) by
  * every descriptor that names it, across fork and dup2. Kinds: the console
@@ -57,6 +59,10 @@ int fd_dup2(struct file **table, int oldfd, int newfd);
 /* Open `path` (fs_open's flags and errors) at the lowest free descriptor,
  * and return it; -EMFILE if none is free. */
 int fd_open(struct file **table, const char *path, int flags);
+
+/* Mark the node just created at the caller's request as the caller's:
+ * its writer label (fs.h), so stat and exec see who made it. */
+void file_note_creator(struct node *n);
 
 /* The next entry of the directory open at `fd`: 1 and *out filled, 0 after
  * the last; -EBADF, -ENOTDIR. */

@@ -3,6 +3,7 @@
 #include <abi/errno.h>
 #include <agent.h>
 #include <apic.h>
+#include <audit.h>
 #include <fs.h>
 #include <idt.h>
 #include <kstring.h>
@@ -10,7 +11,9 @@
 #include <pmm.h>
 #include <sched.h>
 #include <serial.h>
+#include <session.h>
 #include <slab.h>
+#include <syscall.h>
 #include <usercopy.h>
 
 #define PIPE_SIZE PAGE_SIZE
@@ -258,6 +261,14 @@ static int64_t node_read(struct file *f, char *ubuf, size_t n) {
 static int64_t node_write(struct file *f, const char *ubuf, size_t n) {
   if ((f->flags & O_ACCMODE) == O_RDONLY)
     return -EBADF;
+  /* Who writes goes on the file first, so exec can hand it on. It is
+   * the writer now, whoever opened the file. */
+  const struct label *l = &thread_current()->label;
+  int err = fs_note_writer(f->node, l, session_max(l->session));
+  if (err != 0) {
+    syscall_audit(AUDIT_DENIED, CAP_FS_WRITE, err, NULL);
+    return err;
+  }
   if (f->flags & O_APPEND)
     f->off = fs_size(f->node);
   char tmp[BOUNCE];
@@ -372,6 +383,12 @@ static int fd_free_slot(struct file **table, int after) {
   return -EMFILE;
 }
 
+void file_note_creator(struct node *n) {
+  /* New, so no writer yet: two sessions can't clash here. */
+  const struct label *l = &thread_current()->label;
+  fs_note_writer(n, l, session_max(l->session));
+}
+
 int fd_open(struct file **table, const char *path, int flags) {
   int fd = fd_free_slot(table, -1);
   if (fd < 0)
@@ -390,11 +407,15 @@ int fd_open(struct file **table, const char *path, int flags) {
   struct file *f = kzalloc(sizeof *f);
   if (f == NULL)
     return -ENOMEM;
+  struct stat st;
+  int creates = (flags & O_CREAT) && fs_stat(path, &st) == -ENOENT;
   int err = fs_open(path, flags, &f->node);
   if (err != 0) {
     kfree(f);
     return err;
   }
+  if (creates)
+    file_note_creator(f->node); /* an empty file is still the agent's */
   f->kind = F_NODE;
   f->refs = 1;
   f->flags = flags;

@@ -66,6 +66,9 @@ void ktest_fail(void) { qemu_exit(QEMU_EXIT_FAIL); }
   X(agent_channel)                                                             \
   X(mark_agent)                                                                \
   X(audit)                                                                     \
+  X(session)                                                                   \
+  X(file_labels)                                                               \
+  X(escape)                                                                    \
   X(shell)
 
 #define KTEST_DECL(name) int test_##name(void);

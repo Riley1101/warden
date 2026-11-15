@@ -1,6 +1,7 @@
 /limine
 /build
 /build-test
+/build-attack
 
 *.iso
 *.log

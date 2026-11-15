@@ -29,6 +29,8 @@ __attribute__((unused)) static const char *errname(int e) {
     return "EBADF";
   case ECHILD:
     return "ECHILD";
+  case EAGAIN:
+    return "EAGAIN";
   case ENOMEM:
     return "ENOMEM";
   case EACCES:
@@ -62,6 +64,15 @@ __attribute__((unused)) static const char *errname(int e) {
   default:
     return "error";
   }
+}
+
+/* `caps` (abi/cap.h) as four letters, a '-' for each one missing, like
+ * file modes: "rwsk" all, "r---" read only. `out` holds 5 bytes. */
+__attribute__((unused)) static void caps_str(char *out, unsigned caps) {
+  const char *letters = "rwsk"; /* CAP_FS_READ, _WRITE, _SPAWN, _KILL */
+  for (int i = 0; i < 4; i++)
+    out[i] = (caps & (1u << i)) ? letters[i] : '-';
+  out[4] = '\0';
 }
 
 /* "prog: what: ERRNO" on stderr. */

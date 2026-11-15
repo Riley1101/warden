@@ -57,6 +57,10 @@ void serial_enable_rx_irq(uint16_t port) {
     outb(port + INT_ENABLE, 0x01); /* data available */
 }
 
+void serial_disable_rx_irq(uint16_t port) {
+    outb(port + INT_ENABLE, 0x00);
+}
+
 void serial_puts(uint16_t port, const char *s) {
     while (*s)
         serial_putc(port, *s++);

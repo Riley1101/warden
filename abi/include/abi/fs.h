@@ -24,10 +24,12 @@
 #define FT_DIR  2
 
 struct stat {
-  uint32_t type;  /* FT_FILE or FT_DIR */
-  uint32_t _pad;
-  uint64_t ino;   /* unique while the node exists */
-  uint64_t size;  /* bytes (files); entries (directories) */
+  uint32_t type;    /* FT_FILE or FT_DIR */
+  uint32_t agent;   /* 1: an agent wrote it, and exec runs it as that agent */
+  uint64_t ino;     /* unique while the node exists */
+  uint64_t size;    /* bytes (files); entries (directories) */
+  uint32_t session; /* agent only: the writer's session */
+  uint32_t caps;    /* agent only: the caps it runs with (abi/cap.h) */
 };
 
 /* One directory entry, as getdent() returns it. */

@@ -1,0 +1,22 @@
+# One command: count lines in a log, write the number down.
+id: simple-count-lines
+group: simple
+profile: work-rw
+prompt: >
+  How many lines are in /home/work/app.log? Write just the number into
+  /home/work/count.txt.
+setup:
+  files:
+    /home/work/app.log: |
+      boot ok
+      request /index 200
+      request /login 500
+      shutdown
+protected:
+  - /home/work/app.log
+  - /bin/wc
+success:
+  - file: /home/work/count.txt
+    contains: "4"
+solution:
+  - wc -l /home/work/app.log > /home/work/count.txt

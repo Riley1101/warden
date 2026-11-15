@@ -25,7 +25,8 @@ ifeq ($(shell uname -s),Darwin)
 endif
 
 # ---- Paths ----------------------------------------------------------------
-BUILD  := build$(if $(TEST),-test)
+# ATTACKS=1: the normal system plus /test/attack, for the escape matrix
+BUILD  := build$(if $(TEST),-test)$(if $(ATTACKS),-attack)
 ISO    := $(BUILD)/warden.iso
 KERNEL := $(BUILD)/kernel.elf
 
@@ -165,6 +166,14 @@ INITRD_FILES :=
 USER_PROGS   := $(patsubst userland/%.c,%,$(wildcard userland/*.c))
 INITRD_FILES += $(USER_PROGS:%=$(INITRD_DIR)/bin/%)
 
+# /etc: agentd's profiles and deny-list, copied as they are
+ETC_FILES    := $(wildcard etc/*)
+INITRD_FILES += $(ETC_FILES:%=$(INITRD_DIR)/%)
+
+ifdef ATTACKS
+INITRD_FILES += $(INITRD_DIR)/test/attack
+endif
+
 ifdef TEST
 TEST_PROGS   := $(patsubst tests/user/%.c,%,$(wildcard tests/user/*.c))
 INITRD_FILES += $(TEST_PROGS:%=$(INITRD_DIR)/test/%) $(INITRD_DIR)/test/notelf
@@ -179,6 +188,10 @@ $(INITRD_DIR)/bin/%: $(BUILD)/user/obj/userland/%.o $(USER_CRT0) $(LIBC) \
     userland/user.ld
 	@mkdir -p $(@D)
 	$(LD) $(USER_LDFLAGS) $(USER_CRT0) $< $(LIBC) -o $@
+
+$(INITRD_DIR)/etc/%: etc/%
+	@mkdir -p $(@D)
+	cp $< $@
 
 $(INITRD_DIR)/test/notelf: tests/user/notelf
 	@mkdir -p $(@D)
@@ -214,6 +227,47 @@ $(ISO): $(KERNEL) $(INITRD) boot/limine.conf $(DEPS_STAMP)
 run : $(ISO)                        ## Run the kernel in QEMU
 	$(QEMU) $(QEMUFLAGS)
 
+# The task pilot (host/pilot.py). Narrow it with variables:
+#   make pilot TASKS=tasks/simple-*.yaml CONFIGS=C
+#   make pilot RESULTS=/tmp/try.jsonl TEMPERATURE=0.2
+#   make pilot PROFILES=all              # every task under every profile
+#   make analyze MARKDOWN=1              # results.jsonl as paper tables
+#   make bridge CONFIG=D PROFILE=readonly
+PYTHON      ?= host/venv/bin/python
+TASKS       ?= $(wildcard tasks/*.yaml)
+CONFIGS     ?= ABCD
+PROFILES    ?=
+RESULTS     ?= results.jsonl
+TEMPERATURE ?= 0
+CONFIG      ?= C
+PROFILE     ?= work-rw
+
+.PHONY: task-check pilot pilot-all analyze bridge
+task-check: $(ISO)                  ## Check each task's solution and unsafe path, no model
+	$(PYTHON) host/pilot.py --check --iso $(ISO) $(TASKS)
+
+pilot: $(ISO)                       ## Run TASKS under CONFIGS with the model (paid API calls)
+	$(PYTHON) host/pilot.py --iso $(ISO) --configs $(CONFIGS) \
+	    $(if $(PROFILES),--profiles $(PROFILES)) --results $(RESULTS) --temperature $(TEMPERATURE) $(TASKS)
+
+pilot-all: $(ISO)                   ## The pilot with every task under every profile
+	$(MAKE) pilot PROFILES=all
+
+analyze:                            ## The results table from RESULTS (MARKDOWN=1 for the paper)
+	$(PYTHON) host/analyze.py $(if $(MARKDOWN),--markdown) $(RESULTS)
+
+bridge:                             ## Talk to a running `make run` through the model
+	$(PYTHON) host/bridge.py --config $(CONFIG) --profile $(PROFILE)
+
+.PHONY: escape-matrix
+escape-matrix:                      ## Table 3 under configurations A to D, through agentd
+	$(MAKE) ATTACKS=1 iso
+	python3 tests/qemu/escape_matrix.py build-attack/warden.iso
+
+.PHONY: agent-test
+agent-test: $(ISO)                  ## The agent protocol against a real boot
+	python3 tests/qemu/agent_proto.py $(ISO)
+
 run-debug : $(ISO)                  ## Run the kernel in QEMU with GDB stub
 	$(QEMU) $(QEMUFLAGS) -s -S -d int,guest_errors -D $(BUILD)/qemu.log
  
@@ -223,17 +277,21 @@ test: host-test                      ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-HOST_TESTS := path cap audit fmt pmm pt slab elf tar malloc fs
+HOST_TESTS := path cap audit session fmt pmm pt slab elf tar malloc fs frame policy
+$(HOST_BUILD)/test_frame: userland/frame.h
+$(HOST_BUILD)/test_policy: userland/policy.h
+$(HOST_BUILD)/test_frame $(HOST_BUILD)/test_policy: HOST_CFLAGS += -Iuserland
 $(HOST_BUILD)/test_path: kernel/path.c
 $(HOST_BUILD)/test_cap: kernel/cap.c kernel/path.c
 $(HOST_BUILD)/test_audit: kernel/audit.c
+$(HOST_BUILD)/test_session: kernel/session.c
 $(HOST_BUILD)/test_fmt: kernel/fmt.c
 $(HOST_BUILD)/test_pmm: kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_pt: kernel/pt.c kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_slab: kernel/slab.c kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_elf: kernel/elf.c
 $(HOST_BUILD)/test_tar: kernel/tar.c tests/host/tar_builder.h
-$(HOST_BUILD)/test_fs: kernel/fs.c kernel/path.c kernel/tar.c kernel/slab.c kernel/pmm.c \
+$(HOST_BUILD)/test_fs: kernel/fs.c kernel/cap.c kernel/path.c kernel/tar.c kernel/slab.c kernel/pmm.c \
     tests/host/lock_stub.c tests/host/tar_builder.h
 $(HOST_BUILD)/test_malloc: libc/malloc.c tests/host/libc_rename.h
 # the tests ask for absurd sizes; the -Walloc-size* warnings are gcc-only
@@ -251,7 +309,7 @@ $(HOST_BUILD)/test_%: tests/host/include/test_%.c tests/host/include/check.h
 .PHONY: clean distclean compdb lsp help
 
 clean:                               ## Remove build output
-	rm -rf build build-test iso_root *.log
+	rm -rf build build-test build-attack iso_root *.log
 
 distclean: clean                     ## Also remove fetched deps (keeps vendored limine.h)
 	rm -rf limine

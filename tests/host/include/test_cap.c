@@ -88,6 +88,44 @@ static void test_narrow(void) {
   CHECK(cap_allows(&m, CAP_HUMAN) == -ECAPDENIED);
 }
 
+static void test_meet(void) {
+  struct label human = {0};
+  struct label w = agent(CAP_ALL, "/home/work");
+
+  /* a human file changes nothing; a human process takes the agent's */
+  struct label a = w;
+  CHECK(label_meet(&a, &human) == 0);
+  CHECK(a.caps == CAP_ALL && a.origin == ORIGIN_AGENT);
+  struct label h = human;
+  CHECK(label_meet(&h, &w) == 0);
+  CHECK(h.origin == ORIGIN_AGENT && h.session == 1 && h.caps == CAP_ALL);
+  CHECK_STR(h.scope, "/home/work");
+
+  /* same session: the caps both hold, the deeper scope, either way round */
+  struct label r = agent(CAP_FS_READ | CAP_SPAWN, "/home/work/sub");
+  a = w;
+  CHECK(label_meet(&a, &r) == 0);
+  CHECK(a.caps == (CAP_FS_READ | CAP_SPAWN));
+  CHECK_STR(a.scope, "/home/work/sub");
+  a = r;
+  CHECK(label_meet(&a, &w) == 0);
+  CHECK(a.caps == (CAP_FS_READ | CAP_SPAWN));
+  CHECK_STR(a.scope, "/home/work/sub");
+
+  /* scopes side by side, prefix or not: nothing left */
+  struct label x = agent(CAP_ALL, "/home/workevil");
+  a = w;
+  CHECK(label_meet(&a, &x) == 0);
+  CHECK(a.caps == 0);
+
+  /* two sessions don't meet */
+  struct label other = {0};
+  CHECK(label_narrow(&other, 2, CAP_ALL, "/") == 0);
+  a = w;
+  CHECK(label_meet(&a, &other) == -ECAPDENIED);
+  CHECK(a.session == 1 && a.caps == CAP_ALL); /* unchanged */
+}
+
 int main(void) {
   test_in_scope();
   test_human();
@@ -95,5 +133,6 @@ int main(void) {
   test_agent_scope();
   test_agent_channel();
   test_narrow();
+  test_meet();
   return CHECK_DONE();
 }

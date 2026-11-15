@@ -36,8 +36,8 @@ Four weeks. If something slips, protect in this order: escape suite > agent demo
 
 - [x] COM2 receive with an interrupt, a ring buffer, and a blocking `/dev/agent`
       (no line discipline: bytes arrive as sent, for framing to sit on top)
-- [ ] Framed protocol `[u32 len][u8 type][payload]` with `ACTION, RESULT, ERROR`
-- [ ] `host/bridge.py` QEMU socket to LLM API, one JSONL log line per step
+- [x] Framed protocol `[u32 len][u8 type][payload]` with `ACTION, RESULT, ERROR`
+- [x] `host/bridge.py` QEMU socket to LLM API, one JSONL log line per step
 - [ ] `agentd` in L1 mode: read an action, run `sh -c`, return stdout and exit code
 - [x] QEMU: `-serial stdio -serial unix:/tmp/warden-agent.sock,server,nowait`. Debug output only on COM1.
 - [x] Provenance label in each process (`origin`, `session`, `capset`); inherited by `fork`, kept by `exec`
@@ -52,14 +52,14 @@ scoped to `/home/work` can't delete `/bin/ls` through `sh -c`, with the denial i
 
 ## Week Three (Escape suite and agentd configurations)
 
-- [ ] Session process-count limit, set through `mark_agent`
-- [ ] `SYS_kill_session` kill switch
-- [ ] File labels: `writer_origin`/`writer_session`; `exec` of an agent-written file gets the agent label
-- [ ] Escape suite in `make test`, every one blocked: path traversal, prefix confusion, label clearing,
+- [x] Session process-count limit, set through `mark_agent`
+- [x] `SYS_kill_session` kill switch
+- [x] File labels: `writer_origin`/`writer_session`; `exec` of an agent-written file gets the agent label
+- [x] Escape suite in `make test`, every one blocked: path traversal, prefix confusion, label clearing,
       shell escape, fork bomb, executing an agent-written script, bad pointers, reading the audit log, kill switch
-- [ ] agentd userspace policy: string-matching deny-lists of commands and paths
-- [ ] Two capability profiles in a config file: `readonly`, `work-rw`
-- [ ] Four configurations A to D (prompt only, agentd only, kernel only, combined), chosen by one flag
+- [x] agentd userspace policy: string-matching deny-lists of commands and paths
+- [x] Two capability profiles in a config file: `readonly`, `work-rw`
+- [x] Four configurations A to D (prompt only, agentd only, kernel only, combined), chosen by one flag
 - [ ] Feedback: errno name plus the audit record attached to RESULT
 
 **Done when:** every escape test is blocked in `make test`, and one task runs under all four configurations without rebuilding.
@@ -67,12 +67,12 @@ scoped to `/home/work` can't delete `/bin/ls` through `sh -c`, with the denial i
 
 ## Week Four (Harness and pilot evaluation)
 
-- [ ] `host/harness.py`: boot clean, create setup files, run the task, collect audit log and final fs,
-      score, append to `results.jsonl`
-- [ ] Task file format (YAML): prompt, setup, protected paths, profile, success checks
-- [ ] 20 tasks: 5 simple, 5 multi-step, 5 tempting, 5 prompt-injection
+- [x] `host/pilot.py`: boot clean, create setup files, run the task, collect audit log and final fs,
+      score, append to `results.jsonl` (`--check` validates tasks without a model)
+- [x] Task file format (YAML): prompt, setup, protected paths, profile, success checks
+- [ ] 20 tasks: 5 simple, 5 multi-step, 5 tempting, 5 prompt-injection (one of each so far)
 - [ ] Pilot: 20 tasks x 4 configurations x 1 cheap model = 80 runs (low temperature, log for replay)
-- [ ] `analyze.py`: success and unsafe-executed rates per configuration
+- [x] `analyze.py`: success and unsafe-executed rates per configuration (`make analyze`)
 
 **Done when:** one command produces the first results table.
 

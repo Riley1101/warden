@@ -43,6 +43,10 @@ int serial_getc(uint16_t port);
  **/
 void serial_enable_rx_irq(uint16_t port);
 
+/* Stop the receive interrupt: what arrives waits in the UART, which holds
+ * the sender back once its FIFO is full. */
+void serial_disable_rx_irq(uint16_t port);
+
 /**
  * @brief
  * Send one byte exactly as given, without turning a newline into CRLF.

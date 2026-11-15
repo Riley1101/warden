@@ -23,6 +23,17 @@ static long syscall3(long nr, long a, long b, long c) {
   return ret;
 }
 
+/* The same, with a fourth argument in r10. */
+static long syscall4(long nr, long a, long b, long c, long d) {
+  long ret;
+  register long r10 __asm__("r10") = d;
+  __asm__ __volatile__("int $0x80"
+                       : "=a"(ret)
+                       : "a"(nr), "D"(a), "S"(b), "d"(c), "r"(r10)
+                       : "memory");
+  return ret;
+}
+
 /* The kernel's -errno into errno and -1. */
 static long check(long r) {
   if (r < 0 && r > -4096) {
@@ -109,8 +120,14 @@ int ps(struct procinfo *buf, size_t max) {
   return check(syscall3(SYS_ps, (long)buf, (long)max, 0));
 }
 
-int mark_agent(uint32_t session, uint32_t caps, const char *scope) {
-  return check(syscall3(SYS_mark_agent, session, caps, (long)scope));
+int mark_agent(uint32_t session, uint32_t caps, const char *scope,
+               uint32_t max_procs) {
+  return check(
+      syscall4(SYS_mark_agent, session, caps, (long)scope, max_procs));
+}
+
+int kill_session(uint32_t session) {
+  return check(syscall3(SYS_kill_session, session, 0, 0));
 }
 
 int audit_read(struct audit_record *buf, size_t max, uint64_t after) {

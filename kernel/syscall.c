@@ -13,6 +13,7 @@
 #include <kprintf.h>
 #include <path.h>
 #include <proc.h>
+#include <session.h>
 #include <sched.h>
 #include <slab.h>
 #include <stddef.h>
@@ -54,32 +55,6 @@ static int64_t sys_getpid(const uint64_t arg[6], struct trap_frame *f) {
   return thread_current()->tid;
 }
 
-/* The child gets a copy of everything: memory, registers (with rax 0, so
- * fork returns 0 there), and the parent's name. */
-static int64_t sys_fork(const uint64_t arg[6], struct trap_frame *f) {
-  (void)arg;
-  struct thread *parent = thread_current();
-  uint64_t pml4 = vmm_space_new();
-  if (pml4 == 0)
-    return -ENOMEM;
-  if (vmm_space_copy(pml4, parent->pml4) != 0) {
-    vmm_space_free(pml4);
-    return -ENOMEM;
-  }
-  struct trap_frame tf = *f;
-  tf.rax = 0;
-  /* Interrupts are off (interrupt gate): the child can't run before it has
-   * its files, nor die before we read its tid. */
-  struct thread *child = thread_create_user(parent->name, pml4, &tf, parent);
-  if (child == NULL)
-    return -ENOMEM;
-  fd_copy(child->fd, parent->fd);
-  child->brk_base = parent->brk_base; /* the heap's pages were copied too */
-  child->brk = parent->brk;
-  child->label = parent->label; /* a child is never freer than its parent */
-  return child->tid;
-}
-
 static const char *syscall_name(uint32_t nr);
 
 /* `src` into `dst` (`size` bytes), cut short if it must be. */
@@ -91,8 +66,9 @@ static void copy_trunc(char *dst, const char *src, size_t size) {
   dst[n] = '\0';
 }
 
-/* One record about the calling process, in the syscall it is making. */
-static void audit(uint32_t kind, uint32_t need, int err, const char *path) {
+/* A record about the calling process, in the syscall it is making. */
+static struct audit_record audit_record_of(uint32_t kind, uint32_t need,
+                                           int err, const char *path) {
   struct thread *t = thread_current();
   struct audit_record r = {
       .pid = t->tid,
@@ -103,7 +79,52 @@ static void audit(uint32_t kind, uint32_t need, int err, const char *path) {
   };
   copy_trunc(r.syscall, syscall_name(t->syscall), sizeof r.syscall);
   copy_trunc(r.path, path != NULL ? path : "", sizeof r.path);
+  return r;
+}
+
+void syscall_audit(uint32_t kind, uint32_t need, int err, const char *path) {
+  struct audit_record r = audit_record_of(kind, need, err, path);
   audit_log(&r);
+}
+
+/* The child gets a copy of everything: memory, registers (with rax 0, so
+ * fork returns 0 there), and the parent's name. An agent's child counts
+ * against its session's limit. */
+static int64_t sys_fork(const uint64_t arg[6], struct trap_frame *f) {
+  (void)arg;
+  struct thread *parent = thread_current();
+  int agent = parent->label.origin == ORIGIN_AGENT;
+  if (agent) {
+    sched_reap(); /* the session's dead free their places first */
+    int err = session_spawn(parent->label.session);
+    if (err != 0) {
+      syscall_audit(AUDIT_DENIED, CAP_SPAWN, err, NULL);
+      return err;
+    }
+  }
+  uint64_t pml4 = vmm_space_new();
+  if (pml4 == 0 || vmm_space_copy(pml4, parent->pml4) != 0) {
+    if (pml4 != 0)
+      vmm_space_free(pml4);
+    if (agent)
+      session_leave(parent->label.session);
+    return -ENOMEM;
+  }
+  struct trap_frame tf = *f;
+  tf.rax = 0;
+  /* Interrupts are off (interrupt gate): the child can't run before it has
+   * its files, nor die before we read its tid. */
+  struct thread *child = thread_create_user(parent->name, pml4, &tf, parent);
+  if (child == NULL) {
+    if (agent)
+      session_leave(parent->label.session);
+    return -ENOMEM;
+  }
+  fd_copy(child->fd, parent->fd);
+  child->brk_base = parent->brk_base; /* the heap's pages were copied too */
+  child->brk = parent->brk;
+  child->label = parent->label; /* a child is never freer than its parent */
+  return child->tid;
 }
 
 /*
@@ -117,7 +138,7 @@ static int user_path(char *out, uint64_t uptr, uint32_t need) {
     return n;
   int err = cap_path(&thread_current()->label, out, need);
   if (err == -ECAPDENIED)
-    audit(AUDIT_DENIED, need, err, out);
+    syscall_audit(AUDIT_DENIED, need, err, out);
   return err;
 }
 
@@ -143,7 +164,14 @@ static int64_t sys_mkdir(const uint64_t arg[6], struct trap_frame *f) {
   (void)f;
   char path[PATH_MAX];
   int err = user_path(path, arg[0], CAP_FS_WRITE);
-  return err != 0 ? err : fs_mkdir(path);
+  if (err == 0)
+    err = fs_mkdir(path);
+  struct node *n;
+  if (err == 0 && fs_open(path, O_RDONLY, &n) == 0) {
+    file_note_creator(n);
+    fs_put(n);
+  }
+  return err;
 }
 
 static int64_t sys_unlink(const uint64_t arg[6], struct trap_frame *f) {
@@ -300,7 +328,7 @@ static int64_t sys_kill(const uint64_t arg[6], struct trap_frame *f) {
   const struct label *me = &thread_current()->label;
   if (me->origin == ORIGIN_AGENT &&
       (t->label.origin != ORIGIN_AGENT || t->label.session != me->session)) {
-    audit(AUDIT_DENIED, CAP_KILL, -ECAPDENIED, NULL);
+    syscall_audit(AUDIT_DENIED, CAP_KILL, -ECAPDENIED, NULL);
     return -ECAPDENIED;
   }
   thread_kill(t, W_SIGNALED(SIGKILL));
@@ -327,9 +355,10 @@ static int64_t sys_ps(const uint64_t arg[6], struct trap_frame *f) {
 }
 
 /*
- * mark_agent(session, caps, scope): this process, and every one it
- * starts from now on, becomes an agent of `session` holding `caps`, with
- * writes kept under `scope`. Only narrows, so any process may ask. Both
+ * mark_agent(session, caps, scope, max_procs): this process, and every
+ * one it starts from now on, becomes an agent of `session` holding
+ * `caps`, with writes kept under `scope`, the session holding at most
+ * `max_procs` processes. Only narrows, so any process may ask. Both
  * outcomes are logged: a refusal is an attempt to widen.
  */
 static int64_t sys_mark_agent(const uint64_t arg[6], struct trap_frame *f) {
@@ -339,12 +368,33 @@ static int64_t sys_mark_agent(const uint64_t arg[6], struct trap_frame *f) {
   if (n < 0)
     return n;
   struct label *l = &thread_current()->label;
-  int err = label_narrow(l, (uint32_t)arg[0], (uint32_t)arg[1], scope);
+  uint32_t session = (uint32_t)arg[0], max_procs = (uint32_t)arg[3];
+  if (max_procs == 0)
+    return -EINVAL;
+  struct label narrowed = *l; /* both or neither: label and session */
+  int err = label_narrow(&narrowed, session, (uint32_t)arg[1], scope);
+  if (err == 0 && l->origin == ORIGIN_HUMAN)
+    err = session_enter(session, max_procs); /* it counts from now */
+  else if (err == 0)
+    session_lower(session, max_procs);
   if (err == 0)
-    audit(AUDIT_MARK, l->caps, 0, l->scope);
-  else if (err == -EPERM)
-    audit(AUDIT_DENIED, (uint32_t)arg[1], err, scope);
+    *l = narrowed;
+  if (err == 0)
+    syscall_audit(AUDIT_MARK, l->caps, 0, l->scope);
+  else if (err == -EPERM || err == -EAGAIN)
+    syscall_audit(AUDIT_DENIED, (uint32_t)arg[1], err, scope);
   return err;
+}
+
+/* kill_session(session): every process in it ends, as if by SIGKILL. */
+static int64_t sys_kill_session(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  uint32_t session = (uint32_t)arg[0];
+  int n = sched_kill_session(session);
+  struct audit_record r = audit_record_of(AUDIT_KILL, 0, 0, NULL);
+  r.session = session; /* the one ended, not the caller's (none) */
+  audit_log(&r);
+  return n;
 }
 
 /* audit_read(buf, max, after): the records after seq `after`, how many. */
@@ -386,6 +436,7 @@ static const struct syscall table[] = {
     [SYS_ps] = {sys_ps, CAP_ANY, "ps"},
     [SYS_mark_agent] = {sys_mark_agent, CAP_ANY, "mark_agent"},
     [SYS_audit_read] = {sys_audit_read, CAP_HUMAN, "audit_read"},
+    [SYS_kill_session] = {sys_kill_session, CAP_HUMAN, "kill_session"},
 };
 
 #define NSYSCALLS (sizeof table / sizeof table[0])
@@ -416,7 +467,7 @@ static void dispatch(struct trap_frame *f) {
   thread_current()->syscall = (uint32_t)nr;
   int err = cap_check(s->cap);
   if (err != 0) {
-    audit(AUDIT_DENIED, s->cap, err, NULL);
+    syscall_audit(AUDIT_DENIED, s->cap, err, NULL);
     f->rax = err;
     return;
   }

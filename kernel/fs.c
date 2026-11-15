@@ -16,6 +16,8 @@ struct node {
   size_t size, cap;
   int refs;   /* open files */
   int linked; /* in the tree */
+  struct label writer;   /* fs_note_writer: who wrote it */
+  uint32_t writer_max;   /* the writer's session limit, the lowest seen */
 };
 
 static struct node *root;
@@ -261,10 +263,14 @@ void fs_fstat(struct node *n, struct stat *st) {
   uint64_t entries = 0;
   for (struct node *c = n->child; c != NULL; c = c->next)
     entries++;
+  int agent = n->writer.origin == ORIGIN_AGENT;
   *st = (struct stat){
       .type = n->type,
+      .agent = agent,
       .ino = n->ino,
       .size = n->type == FT_DIR ? entries : n->size,
+      .session = agent ? n->writer.session : 0,
+      .caps = agent ? n->writer.caps : 0,
   };
 }
 
@@ -394,4 +400,20 @@ static int load_member(void *ctx, const char *path, enum tar_type type,
 
 int fs_load_tar(const void *tar, size_t len) {
   return tar_each(tar, len, load_member, NULL);
+}
+
+int fs_note_writer(struct node *n, const struct label *l, uint32_t max_procs) {
+  if (l->origin == ORIGIN_HUMAN)
+    return 0;
+  int err = label_meet(&n->writer, l);
+  if (err != 0)
+    return err;
+  if (n->writer_max == 0 || max_procs < n->writer_max)
+    n->writer_max = max_procs;
+  return 0;
+}
+
+const struct label *fs_writer(struct node *n, uint32_t *max_procs) {
+  *max_procs = n->writer_max;
+  return &n->writer;
 }

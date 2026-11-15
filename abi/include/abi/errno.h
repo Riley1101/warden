@@ -8,6 +8,7 @@
 #define ENOEXEC 8       // Exec format error
 #define EBADF 9         //  Bad file descriptor
 #define ECHILD 10       // No child processes
+#define EAGAIN 11       // Try again (an agent session is at its process limit)
 #define ENOMEM 12       // Out of memory
 #define EACCES 13       // Permission denied (or: not executable)
 #define EFAULT 14       // Bad address
