@@ -43,6 +43,7 @@ struct thread {
   int exit_status;        /* abi/wait.h encoding, once it is a zombie */
   struct file *fd[NFD];   /* open files; closed when it dies */
   struct label label;     /* provenance: fork copies it, exec keeps it */
+  uint32_t syscall;       /* the one it is in, for the audit log */
 };
 
 /* Make the code running now (kmain_late, on boot_stack) thread 0. Call

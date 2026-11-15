@@ -4,10 +4,12 @@
 #include <abi/proc.h>
 #include <abi/syscall.h>
 #include <abi/wait.h>
+#include <audit.h>
 #include <cap.h>
 #include <file.h>
 #include <fs.h>
 #include <idt.h>
+#include <kstring.h>
 #include <kprintf.h>
 #include <path.h>
 #include <proc.h>
@@ -19,6 +21,8 @@
 
 /* ps() reports at most this many processes per call. */
 #define PS_MAX 64
+/* audit_read() hands back at most this many records per call. */
+#define AUDIT_READ_MAX 16
 
 /* `f` is the caller's saved registers, for the calls that replace them
  * (fork copies them, exec rewrites them). Most ignore it. */
@@ -29,6 +33,11 @@ typedef int64_t (*syscall_fn)(const uint64_t arg[6], struct trap_frame *f);
  * one: dispatch() refuses an entry left at CAP_UNDECLARED, so forgetting
  * to think about a new syscall's permission fails closed.
  */
+/* For a call whose path decides: the handler passes every path through
+ * user_path with what it needs (open: by its flags), which checks the
+ * caps as well as the scope, so a refusal is logged with the path. */
+#define CAP_BY_PATH CAP_ANY
+
 struct syscall {
   syscall_fn fn;
   uint32_t cap;
@@ -71,6 +80,32 @@ static int64_t sys_fork(const uint64_t arg[6], struct trap_frame *f) {
   return child->tid;
 }
 
+static const char *syscall_name(uint32_t nr);
+
+/* `src` into `dst` (`size` bytes), cut short if it must be. */
+static void copy_trunc(char *dst, const char *src, size_t size) {
+  size_t n = strlen(src);
+  if (n >= size)
+    n = size - 1;
+  memcpy(dst, src, n);
+  dst[n] = '\0';
+}
+
+/* One record about the calling process, in the syscall it is making. */
+static void audit(uint32_t kind, uint32_t need, int err, const char *path) {
+  struct thread *t = thread_current();
+  struct audit_record r = {
+      .pid = t->tid,
+      .session = t->label.session,
+      .kind = kind,
+      .need = need,
+      .err = err,
+  };
+  copy_trunc(r.syscall, syscall_name(t->syscall), sizeof r.syscall);
+  copy_trunc(r.path, path != NULL ? path : "", sizeof r.path);
+  audit_log(&r);
+}
+
 /*
  * A path argument, into `out` (PATH_MAX bytes), that the caller may use
  * with `need` (CAP_FS_READ, CAP_FS_WRITE, or both). Every path a syscall
@@ -80,7 +115,10 @@ static int user_path(char *out, uint64_t uptr, uint32_t need) {
   int n = copy_str_from_user(out, (const char *)uptr, PATH_MAX);
   if (n < 0)
     return n;
-  return cap_path(&thread_current()->label, out, need);
+  int err = cap_path(&thread_current()->label, out, need);
+  if (err == -ECAPDENIED)
+    audit(AUDIT_DENIED, need, err, out);
+  return err;
 }
 
 /* What open's flags ask of the file: reading, writing, or both. */
@@ -261,8 +299,10 @@ static int64_t sys_kill(const uint64_t arg[6], struct trap_frame *f) {
     return -EPERM; /* a kernel thread */
   const struct label *me = &thread_current()->label;
   if (me->origin == ORIGIN_AGENT &&
-      (t->label.origin != ORIGIN_AGENT || t->label.session != me->session))
+      (t->label.origin != ORIGIN_AGENT || t->label.session != me->session)) {
+    audit(AUDIT_DENIED, CAP_KILL, -ECAPDENIED, NULL);
     return -ECAPDENIED;
+  }
   thread_kill(t, W_SIGNALED(SIGKILL));
   return 0;
 }
@@ -289,7 +329,8 @@ static int64_t sys_ps(const uint64_t arg[6], struct trap_frame *f) {
 /*
  * mark_agent(session, caps, scope): this process, and every one it
  * starts from now on, becomes an agent of `session` holding `caps`, with
- * writes kept under `scope`. Only narrows, so any process may ask.
+ * writes kept under `scope`. Only narrows, so any process may ask. Both
+ * outcomes are logged: a refusal is an attempt to widen.
  */
 static int64_t sys_mark_agent(const uint64_t arg[6], struct trap_frame *f) {
   (void)f;
@@ -297,8 +338,30 @@ static int64_t sys_mark_agent(const uint64_t arg[6], struct trap_frame *f) {
   int n = copy_str_from_user(scope, (const char *)arg[2], sizeof scope);
   if (n < 0)
     return n;
-  return label_narrow(&thread_current()->label, (uint32_t)arg[0],
-                      (uint32_t)arg[1], scope);
+  struct label *l = &thread_current()->label;
+  int err = label_narrow(l, (uint32_t)arg[0], (uint32_t)arg[1], scope);
+  if (err == 0)
+    audit(AUDIT_MARK, l->caps, 0, l->scope);
+  else if (err == -EPERM)
+    audit(AUDIT_DENIED, (uint32_t)arg[1], err, scope);
+  return err;
+}
+
+/* audit_read(buf, max, after): the records after seq `after`, how many. */
+static int64_t sys_audit_read(const uint64_t arg[6], struct trap_frame *f) {
+  (void)f;
+  size_t max = arg[1] < AUDIT_READ_MAX ? arg[1] : AUDIT_READ_MAX;
+  if (max == 0)
+    return 0;
+  struct audit_record *buf = kmalloc(max * sizeof *buf);
+  if (buf == NULL)
+    return -ENOMEM;
+  size_t n = audit_read(buf, max, arg[2]);
+  int64_t r = (int64_t)n;
+  if (copy_to_user((void *)arg[0], buf, n * sizeof *buf) != 0)
+    r = -EFAULT;
+  kfree(buf);
+  return r;
 }
 
 static const struct syscall table[] = {
@@ -314,17 +377,22 @@ static const struct syscall table[] = {
     [SYS_pipe] = {sys_pipe, CAP_ANY, "pipe"},
     [SYS_dup2] = {sys_dup2, CAP_ANY, "dup2"},
     [SYS_brk] = {sys_brk, CAP_ANY, "brk"},
-    [SYS_open] = {sys_open, CAP_ANY, "open"}, /* its flags decide */
-    [SYS_mkdir] = {sys_mkdir, CAP_FS_WRITE, "mkdir"},
-    [SYS_unlink] = {sys_unlink, CAP_FS_WRITE, "unlink"},
-    [SYS_rename] = {sys_rename, CAP_FS_WRITE, "rename"},
-    [SYS_stat] = {sys_stat, CAP_FS_READ, "stat"},
+    [SYS_open] = {sys_open, CAP_BY_PATH, "open"},
+    [SYS_mkdir] = {sys_mkdir, CAP_BY_PATH, "mkdir"},
+    [SYS_unlink] = {sys_unlink, CAP_BY_PATH, "unlink"},
+    [SYS_rename] = {sys_rename, CAP_BY_PATH, "rename"},
+    [SYS_stat] = {sys_stat, CAP_BY_PATH, "stat"},
     [SYS_getdent] = {sys_getdent, CAP_FS_READ, "getdent"},
     [SYS_ps] = {sys_ps, CAP_ANY, "ps"},
     [SYS_mark_agent] = {sys_mark_agent, CAP_ANY, "mark_agent"},
+    [SYS_audit_read] = {sys_audit_read, CAP_HUMAN, "audit_read"},
 };
 
 #define NSYSCALLS (sizeof table / sizeof table[0])
+
+static const char *syscall_name(uint32_t nr) {
+  return nr < NSYSCALLS && table[nr].name != NULL ? table[nr].name : "?";
+}
 
 /* The kind of call, against the caller's label. Paths are checked
  * further in, by user_path, once the handler knows what they are. */
@@ -345,8 +413,10 @@ static void dispatch(struct trap_frame *f) {
     f->rax = -ENOSYS;
     return;
   }
+  thread_current()->syscall = (uint32_t)nr;
   int err = cap_check(s->cap);
   if (err != 0) {
+    audit(AUDIT_DENIED, s->cap, err, NULL);
     f->rax = err;
     return;
   }

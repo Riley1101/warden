@@ -44,7 +44,7 @@ Four weeks. If something slips, protect in this order: escape suite > agent demo
 - [x] `SYS_mark_agent(session, caps)`: one-way, can only narrow; agentd marks the child before running the command
 - [x] `cap.c`: `cap_check()` and component-aware `in_scope()` with host tests (`/home` vs `/homeevil`, `..`)
 - [x] `cap_check` inside `dispatch()`, denied calls return `-ECAPDENIED`
-- [ ] `audit.c` ring buffer and `SYS_audit_read` (human-only), host test for wraparound
+- [x] `audit.c` ring buffer and `SYS_audit_read` (human-only), host test for wraparound
 
 **Done when:** the model's command runs in warden from a host prompt (record it), and an agent
 scoped to `/home/work` can't delete `/bin/ls` through `sh -c`, with the denial in the audit log.

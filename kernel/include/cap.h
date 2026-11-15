@@ -31,6 +31,8 @@ struct label {
  * every process through. 0 is left undeclared, so dispatch refuses it. */
 #define CAP_UNDECLARED 0u
 #define CAP_ANY        (1u << 31)
+/* Humans only. Never in CAP_ALL, so label_narrow can't hand it out. */
+#define CAP_HUMAN      (1u << 30)
 
 /* 1 if `path` is `scope` or below it, by whole components: "/home/work"
  * holds "/home/work/a" but not "/home/workevil". Both normalized. */

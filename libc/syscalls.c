@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <sys/agent.h>
+#include <sys/audit.h>
 #include <sys/proc.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -110,4 +111,8 @@ int ps(struct procinfo *buf, size_t max) {
 
 int mark_agent(uint32_t session, uint32_t caps, const char *scope) {
   return check(syscall3(SYS_mark_agent, session, caps, (long)scope));
+}
+
+int audit_read(struct audit_record *buf, size_t max, uint64_t after) {
+  return check(syscall3(SYS_audit_read, (long)buf, (long)max, (long)after));
 }

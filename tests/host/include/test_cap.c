@@ -24,6 +24,7 @@ static void test_in_scope(void) {
 static void test_human(void) {
   struct label human = {0};
   CHECK(cap_allows(&human, CAP_SPAWN) == 0);
+  CHECK(cap_allows(&human, CAP_HUMAN) == 0);
   CHECK(cap_path(&human, "/bin/ls", CAP_FS_WRITE) == 0);
   CHECK(cap_path(&human, "relative", CAP_FS_READ) == 0); /* the fs's to judge */
 }
@@ -81,9 +82,10 @@ static void test_narrow(void) {
   CHECK(l.caps == (CAP_FS_READ | CAP_FS_WRITE));
   CHECK_STR(l.scope, "/home/work/sub");
 
-  /* unknown bits are dropped */
-  struct label m = agent(0xffu, "/");
+  /* unknown bits are dropped, CAP_HUMAN among them */
+  struct label m = agent(0xffu | CAP_HUMAN, "/");
   CHECK(m.caps == CAP_ALL);
+  CHECK(cap_allows(&m, CAP_HUMAN) == -ECAPDENIED);
 }
 
 int main(void) {

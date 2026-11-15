@@ -127,6 +127,12 @@ int test_mark_agent(void) {
     return 0;
 }
 
+/* Denials logged for a human to read, refused to an agent. */
+int test_audit(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/audit", "audit");
+    return 0;
+}
+
 /* The shell in /bin, running pipelines and redirections (tests/user). */
 int test_shell(void) {
     RUN_EXPECT(W_EXITCODE(0), "/test/shell", "shell");
