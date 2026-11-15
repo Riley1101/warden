@@ -25,7 +25,8 @@ ifeq ($(shell uname -s),Darwin)
 endif
 
 # ---- Paths ----------------------------------------------------------------
-BUILD  := build$(if $(TEST),-test)
+# ATTACKS=1: the normal system plus /test/attack, for the escape matrix
+BUILD  := build$(if $(TEST),-test)$(if $(ATTACKS),-attack)
 ISO    := $(BUILD)/warden.iso
 KERNEL := $(BUILD)/kernel.elf
 
@@ -169,6 +170,10 @@ INITRD_FILES += $(USER_PROGS:%=$(INITRD_DIR)/bin/%)
 ETC_FILES    := $(wildcard etc/*)
 INITRD_FILES += $(ETC_FILES:%=$(INITRD_DIR)/%)
 
+ifdef ATTACKS
+INITRD_FILES += $(INITRD_DIR)/test/attack
+endif
+
 ifdef TEST
 TEST_PROGS   := $(patsubst tests/user/%.c,%,$(wildcard tests/user/*.c))
 INITRD_FILES += $(TEST_PROGS:%=$(INITRD_DIR)/test/%) $(INITRD_DIR)/test/notelf
@@ -222,6 +227,11 @@ $(ISO): $(KERNEL) $(INITRD) boot/limine.conf $(DEPS_STAMP)
 run : $(ISO)                        ## Run the kernel in QEMU
 	$(QEMU) $(QEMUFLAGS)
 
+.PHONY: escape-matrix
+escape-matrix:                      ## Table 3 under configurations A to D, through agentd
+	$(MAKE) ATTACKS=1 iso
+	python3 tests/qemu/escape_matrix.py build-attack/warden.iso
+
 .PHONY: agent-test
 agent-test: $(ISO)                  ## The agent protocol against a real boot
 	python3 tests/qemu/agent_proto.py $(ISO)
@@ -267,7 +277,7 @@ $(HOST_BUILD)/test_%: tests/host/include/test_%.c tests/host/include/check.h
 .PHONY: clean distclean compdb lsp help
 
 clean:                               ## Remove build output
-	rm -rf build build-test iso_root *.log
+	rm -rf build build-test build-attack iso_root *.log
 
 distclean: clean                     ## Also remove fetched deps (keeps vendored limine.h)
 	rm -rf limine
