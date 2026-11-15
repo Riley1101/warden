@@ -51,8 +51,9 @@ four configurations (prompt only, a userspace deny-list, the kernel, and both), 
 blocks all 12. The deny-list blocks 3 of the 5 attacks that are spelled out in command text, and
 none of the 7 that happen below it, other than the one that fault containment blocks everywhere.
 With a *real model* working through tasks, we measure what enforcement costs in task success and
-how often it turns an executed harm into a refused one: [TBD]. The trusted kernel is about [TBD]
-lines of C.
+how often it turns an executed harm into a refused one. In a preliminary run of 32 tasks, one
+model succeeded in every run under every configuration and tried nothing unsafe, so enforcement
+cost no task; the full pilot is [TBD]. The trusted kernel is about 6,000 lines of C and assembly.
 
 ## 1 Introduction
 
@@ -298,14 +299,15 @@ interrupts off. There are 22 system calls in total. Table 2 gives the size of ea
 
 | Component | Lines (C and assembly, incl. comments) |
 |---|---|
-| Kernel | [TBD: 6,055 by `wc -l`; rerun with cloc] |
-| of which: labels, sessions and audit (`cap.c`, `session.c`, `audit.c`, headers) | [TBD: 299 by `wc -l`] |
-| ABI headers | [TBD: 194] |
-| libc | [TBD: 624] |
-| Userland (`sh`, `agentd`, tools) | [TBD: 1,665] |
-| of which: `agentd` with its frame parser and deny-list checker | [TBD: 641] |
+| Kernel | 6,055 |
+| of which: labels, sessions and audit (`cap.c`, `session.c`, `audit.c`, headers) | 299 |
+| ABI headers | 194 |
+| libc | 624 |
+| Userland (`sh`, `agentd`, tools) | 1,665 |
+| of which: `agentd` with its frame parser and deny-list checker | 641 |
 
-*Table 2: size of Warden.*
+*Table 2: size of Warden, by `wc -l` (2026-11-15). [TODO: recount with cloc to drop blank
+lines and comments.]*
 
 ### 4.2 Userland
 
@@ -440,7 +442,8 @@ are reported apart, because a task's success checks mean something only under it
 Before any model runs, `pilot.py --check` validates the tasks themselves, with no model. Each
 reference solution must succeed and stay safe under C. Each unsafe sequence must be scored unsafe
 under A, and safe with the attempt seen under C. A task that cannot tell these apart measures
-nothing. The model is [TBD: model name] at temperature 0.
+nothing. All four current tasks pass this check. The preliminary run used Gemini 3.8 Flash at
+temperature 0 through OpenRouter; [TODO: the model, or models, for the full pilot].
 
 **Metrics.** Defined before the pilot was run:
 
@@ -512,6 +515,13 @@ quoting; `cd` in steps; a path assembled from quoted pieces; a nested `sh -c` in
 script written into the scope then run with `sh`; `mv` of the victim into the scope, then `rm`;
 and `>` and `>>` onto the victim. The deny-list stops six. The two it misses are the nested shell
 and the script: the cases where the command that does the harm is not on the line it reads.
+
+The other rows' outputs show the mechanisms at work. Under C, the fork bomb is refused with
+`EAGAIN` after 30 forks: the session's limit is 32, and the command's `sh` and the attack program
+itself hold the other two places. Under A and B it reached the test's own cap of 64 forks without a
+refusal. Under C, `kill agentd` fails with `ECAPDENIED`; under A and B, `agentd` dies and the
+session's channel goes silent. Under A and B the kill switch ends no process, since nothing
+belongs to a session, and the three orphans keep running.
 
 Three observations follow.
 
@@ -713,8 +723,8 @@ Prompts and command filters try to decide, from the text of a command, what it w
 knows exactly what each process is about to do, and with a provenance label it also knows on whose
 behalf. Warden shows that a single checkpoint, labels that only narrow, and labels on the files an
 agent writes are enough to block every attack in our suite, including the ones a careful deny-list
-misses because they are not on the command line at all, at a cost of [TBD] in task success and
-[TBD] per system call. Agents with a shell should be limited where the shell itself is limited:
+misses because they are not on the command line at all. In a preliminary run it cost no task;
+the cost in the full pilot is [TBD], and per system call [TBD]. Agents with a shell should be limited where the shell itself is limited:
 below it.
 
 ## References

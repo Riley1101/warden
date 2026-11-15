@@ -306,10 +306,15 @@ $(HOST_BUILD)/test_%: tests/host/include/test_%.c tests/host/include/check.h
 	$(HOST_CC) $(HOST_CFLAGS) $(filter %.c,$^) -o $@
 
 # ---- Housekeeping ---------------------------------------------------------
-.PHONY: clean distclean compdb lsp help
+.PHONY: clean clean-results distclean compdb lsp help
 
-clean:                               ## Remove build output
-	rm -rf build build-test build-attack iso_root *.log
+clean: clean-results                 ## Remove build output, results and caches
+	rm -rf build build-test build-attack build-host iso_root *.log
+	find host tests -name __pycache__ -not -path 'host/venv/*' -prune -exec rm -rf {} +
+
+# Pilot output only. writings/data/ is kept: the paper's tables come from it.
+clean-results:                       ## Remove results.jsonl, runs/ and the escape-matrix table
+	rm -rf $(RESULTS) runs build-attack/escape-matrix.json
 
 distclean: clean                     ## Also remove fetched deps (keeps vendored limine.h)
 	rm -rf limine
