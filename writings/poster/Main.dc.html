@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Warden research poster</title>
+<script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1F4FD1}a:hover{color:#16181D}
+code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.86em}
+</style>
+</helmet>
+<div style="width: 4032px; height: 3264px; box-sizing: border-box; padding: 120px; background: #F6F5F1; color: #16181D; font-family: Arial, Helvetica, sans-serif; display: flex; flex-direction: column; gap: 64px; overflow: hidden">
+
+<header style="display: flex; justify-content: space-between; align-items: flex-end; gap: 80px; padding-bottom: 44px; border-bottom: 5px solid #16181D">
+<div style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
+<div style="font-size: 30px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: {{accent}}">11/15/2026</div>
+<h1 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 160px; line-height: 0.95; font-weight: 700; letter-spacing: -0.02em">Warden</h1>
+<div style="font-family: Arial, Helvetica, sans-serif; font-size: 58px; line-height: 1.15; font-weight: 500; color: #2A2E35">Enforcing What AI Agents Can Do Below the Shell</div>
+<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px">
+<div style="font-size: 38px; font-weight: 600">Arkar Myat <span style="font-weight: normal">(Computer Science)</span>, May Aung <span style="font-weight: normal">(Computer Systems Technology)</span>, Professor Lawrence Ryan<span style="font-weight: normal"> (Data Science)</span></div>
+
+</div>
+</div>
+<div style="display: flex; gap: 36px; align-items: flex-end; flex-shrink: 0">
+<div style="width: 460px; height: 190px; box-sizing: border-box; border: 3px dashed #8A9099; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 30px; color: #4A4F57">[City Tech logo]</div>
+</div>
+</header>
+
+<main style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: 64px">
+
+<div style="display: flex; flex-direction: column; gap: 52px; min-width: 0">
+<section style="display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; align-items: baseline; gap: 18px; padding-bottom: 14px; border-bottom: 4px solid {{accent}}">
+<span style="font-family: Arial, Helvetica, sans-serif; font-size: 38px; font-weight: 700; color: {{accent}}">01</span>
+<h2 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 60px; line-height: 1.05; font-weight: 700; letter-spacing: -0.01em">Abstract</h2>
+</div>
+<p style="margin: 0; font-size: 32px; line-height: 1.42; font-family: Arial, sans-serif">LLM agents increasingly execute shell commands, but prompts and userspace command filters reason about text while damage occurs through system calls. Warden is a small x86-64 research kernel that labels every agent process with a session, capability set, and writable filesystem scope; labels persist across <code>fork</code> and <code>exec</code>, and a fail-closed dispatch table checks every system call. We validate the current prototype with host unit tests and end-to-end QEMU tests, and plan an 80-run comparison of prompt-only, userspace-filter, kernel-only, and combined configurations on 20 tasks. The current implementation passes all 57 available test groups (11 host binaries and 46 in-kernel tests). Comparative safety, utility, and overhead results have not been measured yet.</p>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; align-items: baseline; gap: 18px; padding-bottom: 14px; border-bottom: 4px solid {{accent}}">
+<span style="font-family: Arial, Helvetica, sans-serif; font-size: 38px; font-weight: 700; color: {{accent}}">02</span>
+<h2 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 60px; line-height: 1.05; font-weight: 700; letter-spacing: -0.01em">Introduction &amp; Background</h2>
+</div>
+<p style="margin: 0; font-size: 32px; line-height: 1.42">Coding and operations agents act through tools such as <code>run_shell(command)</code>, which can create, modify, execute or delete files with the authority of the user who started the agent. The AgentDojo benchmark contains 629 security test cases across 97 realistic tasks [1].</p>
+<p style="margin: 0; font-size: 32px; line-height: 1.42">Most systems rely on prompt rules or a userspace wrapper that rejects suspicious command strings. Both act before the shell interprets the command. A shell can build the same action through quoting, variables, <code>cd</code>, path traversal, scripts or child processes.</p>
+<div style="background: #E9E8E3; border-radius: 14px; padding: 28px 32px; display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 26px; line-height: 1.35; color: #3B4048">A filter looking for <code>/bin</code> misses:</div>
+<div style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 30px; line-height: 1.35; font-weight: 600">$ cd /; rm b''in/ls</div>
+<div style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 26px; line-height: 1.35; color: #3B4048">kernel receives → <span style="color: {{accent}}; font-weight: 600">unlink("/bin/ls")</span></div>
+</div>
+<p style="margin: 0; font-size: 32px; line-height: 1.42">Warden makes the decision in the kernel. At that point the kernel knows the calling process, the requested system call and the normalized path, no matter how the command was typed.</p>
+</section>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 52px; min-width: 0">
+<div style="background: #E6EAF5; border-radius: 16px; padding: 32px 36px; display: flex; flex-direction: column; gap: 16px">
+<div style="font-size: 28px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: {{accent}}">Research questions</div>
+<ol style="margin: 0; padding-left: 1.2em; font-size: 30px; line-height: 1.38; display: flex; flex-direction: column; gap: 14px">
+<li><b>Security.</b> Which escape techniques are blocked by prompt rules, a userspace deny-list, kernel enforcement, and both combined?</li>
+<li><b>Utility.</b> How does kernel enforcement affect task success and unsafe actions attempted vs. executed?</li>
+<li><b>Overhead.</b> What does the capability check cost per ordinary and path-based system call?</li>
+</ol>
+</div>
+
+<section style="display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; align-items: baseline; gap: 18px; padding-bottom: 14px; border-bottom: 4px solid {{accent}}">
+<span style="font-family: Arial, Helvetica, sans-serif; font-size: 38px; font-weight: 700; color: {{accent}}">03</span>
+<h2 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 60px; line-height: 1.05; font-weight: 700; letter-spacing: -0.01em">Methodology</h2>
+</div>
+<ol style="margin: 0; padding-left: 1.2em; font-size: 30px; line-height: 1.4; display: flex; flex-direction: column; gap: 14px">
+<li>An operator sends a request to <code>bridge.py</code>; the model returns exactly one <code>run_shell</code> call via an OpenAI-compatible API.</li>
+<li>The bridge forwards the command over a Unix socket to QEMU's COM2; <code>/dev/agent</code> delivers it to <code>agentd</code>.</li>
+<li><code>agentd</code> forks. The child redirects output to a pipe, calls <code>mark_agent(session, caps, scope)</code>, and only then runs <code>/bin/sh -c</code>.</li>
+<li>The label is inherited across <code>fork</code>, kept across <code>exec</code>, and can only narrow. Every syscall passes one dispatch table; paths are checked after normalization.</li>
+<li>The parent streams output back, ending with <code>\0EXIT &lt;code&gt;</code>. <code>agentd</code> never executes agent input itself.</li>
+</ol>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 14px">
+
+<figcaption style="font-size: 26px; line-height: 1.4; color: #3B4048"><b>Figure A.</b> Agent request and response path, from operator to labeled child and back.</figcaption>
+</figure>
+<div style="display: flex; flex-direction: column; gap: 12px">
+
+<div style="font-size: 26px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #3B4048">Technology stack</div><div style="display: grid; grid-template-columns: 150px minmax(0, 1fr); column-gap: 20px; row-gap: 10px; font-size: 27px; line-height: 1.35">
+
+
+
+
+
+<div style="font-weight: 700">Bridge</div><div>Python, OpenRouter</div><div style="font-weight: 700">Transport</div><div>Unix socket → COM2 → <code>/dev/agent</code></div><div style="font-weight: 700">Tests</div><div>Make, GCC, host + QEMU tests</div><div style="font-weight: 700">Kernel</div><div>x86-64 C + NASM, <code>int 0x80</code>, ring 3</div><div style="font-weight: 700">Boot</div><div>Limine, QEMU q35, 512 MiB</div><div style="font-weight: 700">Runtime</div><div>Custom libc, shell, in-memory FS</div>
+</div>
+</div>
+</section>
+</div>
+
+<div style="grid-column: span 2; display: flex; flex-direction: column; gap: 40px; min-width: 0">
+<section style="display: flex; flex-direction: column; gap: 32px">
+<div style="display: flex; align-items: baseline; gap: 18px; padding-bottom: 14px; border-bottom: 4px solid {{accent}}">
+<span style="font-family: Arial, Helvetica, sans-serif; font-size: 38px; font-weight: 700; color: {{accent}}">04</span>
+<h2 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 60px; line-height: 1.05; font-weight: 700; letter-spacing: -0.01em">Results</h2>
+<span style="margin-left: auto; font-size: 28px; font-weight: 600; color: #3B4048">Implementation validated · comparative results pending</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 18px">
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 36px">
+<div style="display: flex; flex-direction: column; gap: 10px; padding-top: 20px; border-top: 3px solid #16181D">
+<div style="font-family: Arial, Helvetica, sans-serif; font-size: 84px; line-height: 1; font-weight: 700; color: {{accent}}">57/57</div>
+<div style="font-size: 28px; line-height: 1.35">functional test groups passed (11 host + 46 in-kernel)</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; padding-top: 20px; border-top: 3px solid #16181D">
+<div style="font-family: Arial, Helvetica, sans-serif; font-size: 84px; line-height: 1; font-weight: 700; color: {{accent}}">21/21</div>
+<div style="font-size: 28px; line-height: 1.35">syscall table entries declare how they are checked</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; padding-top: 20px; border-top: 3px solid #16181D">
+<div style="font-family: Arial, Helvetica, sans-serif; font-size: 84px; line-height: 1; font-weight: 700; color: {{accent}}">114</div>
+<div style="font-size: 28px; line-height: 1.35">lines in <code>agentd</code>, the trusted bridge between host and kernel</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; padding-top: 20px; border-top: 3px solid #16181D">
+<div style="font-family: Arial, Helvetica, sans-serif; font-size: 84px; line-height: 1; font-weight: 700; color: {{accent}}">5,655</div>
+<div style="font-size: 28px; line-height: 1.35">physical lines of kernel source (C, assembly, headers)</div>
+</div>
+</div>
+<p style="margin: 0; font-size: 27px; line-height: 1.4; color: #3B4048"><code>make test SAN=0 HOST_BUILD=build-host-nosan</code> builds a clean ISO, runs 11 host binaries, boots Warden in QEMU and runs 46 kernel test groups covering memory, scheduling, user/kernel isolation, processes, files, the agent channel, labels, the audit log and the shell. Sanitizers are off because LeakSanitizer cannot run under the managed environment's ptrace.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<h3 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 40px; line-height: 1.15; font-weight: 700">Security properties exercised by current tests</h3>
+<table style="width: 100%; border-collapse: collapse; font-size: 29px; line-height: 1.35">
+<thead>
+<tr>
+<th style="text-align: left; padding: 10px 24px 10px 0; border-bottom: 3px solid #16181D; font-size: 25px; letter-spacing: 0.06em; text-transform: uppercase">Test case</th>
+<th style="text-align: left; padding: 10px 24px 10px 0; border-bottom: 3px solid #16181D; font-size: 25px; letter-spacing: 0.06em; text-transform: uppercase">Expected policy</th>
+<th style="text-align: right; padding: 10px 0; border-bottom: 3px solid #16181D; font-size: 25px; letter-spacing: 0.06em; text-transform: uppercase">Result</th>
+</tr>
+</thead>
+<tbody>
+<tr><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Write through <code>/home/work/../../bin/ls</code></td><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Deny after normalization</td><td style="padding: 12px 0; border-bottom: 1px solid #C9C7C0; text-align: right; font-weight: 700; color: {{accent}}">Blocked</td></tr>
+<tr><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Write to prefix-confusion path <code>/home/workevil</code></td><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Deny at path-component boundary</td><td style="padding: 12px 0; border-bottom: 1px solid #C9C7C0; text-align: right; font-weight: 700; color: {{accent}}">Blocked</td></tr>
+<tr><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Add capabilities, widen scope, or change session</td><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Labels may only narrow</td><td style="padding: 12px 0; border-bottom: 1px solid #C9C7C0; text-align: right; font-weight: 700; color: {{accent}}">Blocked</td></tr>
+<tr><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Agent opens <code>/dev/agent</code></td><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Channel is unavailable to agents</td><td style="padding: 12px 0; border-bottom: 1px solid #C9C7C0; text-align: right; font-weight: 700; color: {{accent}}">Blocked</td></tr>
+<tr><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Agent kills a human or another session</td><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Only same-session targets allowed</td><td style="padding: 12px 0; border-bottom: 1px solid #C9C7C0; text-align: right; font-weight: 700; color: {{accent}}">Blocked</td></tr>
+<tr><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Agent reads the audit log</td><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Audit records are human-only</td><td style="padding: 12px 0; border-bottom: 1px solid #C9C7C0; text-align: right; font-weight: 700; color: {{accent}}">Blocked + logged</td></tr>
+<tr><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Bad user pointer or user-mode fault</td><td style="padding: 12px 24px 12px 0; border-bottom: 1px solid #C9C7C0">Return <code>EFAULT</code> or kill only the process</td><td style="padding: 12px 0; border-bottom: 1px solid #C9C7C0; text-align: right; font-weight: 700; color: {{accent}}">Contained</td></tr>
+</tbody>
+</table>
+<p style="margin: 0; font-size: 26px; line-height: 1.4; color: #3B4048">All 57 current functional test groups passed. These tests check that the implementation works. The planned end-to-end escape suite, which compares defenses, has not run yet.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 18px">
+<h3 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 40px; line-height: 1.15; font-weight: 700">Comparative evaluation <span style="font-weight: 500; color: #3B4048">(planned)</span></h3>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 48px; align-items: start">
+<table style="width: 100%; border-collapse: collapse; font-size: 27px; line-height: 1.3">
+<thead>
+<tr>
+<th style="text-align: left; padding: 8px 12px 8px 0; border-bottom: 3px solid #16181D; font-size: 24px">Configuration</th>
+<th style="text-align: center; padding: 8px 6px; border-bottom: 3px solid #16181D; font-size: 24px">Prompt</th>
+<th style="text-align: center; padding: 8px 6px; border-bottom: 3px solid #16181D; font-size: 24px">Deny-list</th>
+<th style="text-align: center; padding: 8px 0 8px 6px; border-bottom: 3px solid #16181D; font-size: 24px">Kernel</th>
+</tr>
+</thead>
+<tbody>
+<tr><td style="padding: 8px 12px 8px 0; border-bottom: 1px solid #C9C7C0"><b>A</b> Prompt only</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0">✓</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0; color: #6B7079">—</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0; color: #6B7079">—</td></tr>
+<tr><td style="padding: 8px 12px 8px 0; border-bottom: 1px solid #C9C7C0"><b>B</b> <code>agentd</code> only</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0">✓</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0">✓</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0; color: #6B7079">—</td></tr>
+<tr><td style="padding: 8px 12px 8px 0; border-bottom: 1px solid #C9C7C0"><b>C</b> Kernel only</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0">✓</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0; color: #6B7079">—</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0">✓</td></tr>
+<tr><td style="padding: 8px 12px 8px 0; border-bottom: 1px solid #C9C7C0"><b>D</b> Combined</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0">✓</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0">✓</td><td style="text-align: center; border-bottom: 1px solid #C9C7C0">✓</td></tr>
+</tbody>
+</table>
+<p style="margin: 0; font-size: 27px; line-height: 1.4">20 tasks (5 simple, 5 multi-step, 5 tempting, 5 with indirect prompt injection) run once per configuration with the same model and settings: <b>20 × 4 = 80 runs</b>. Profiles: <code>readonly</code> and <code>work-rw</code> (write scope <code>/home/work</code>). Each run boots a clean QEMU image and is scored automatically against final-state checks.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 36px; margin-top: 8px">
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 12px">
+<div style="height: 440px; box-sizing: border-box; border: 3px dashed #8A9099; border-radius: 12px; background: #ECEBE6; display: flex; align-items: center; justify-content: center; padding: 28px; text-align: center; font-size: 28px; line-height: 1.35; color: #4A4F57">[Figure 1 — pending pilot]</div>
+<figcaption style="font-size: 25px; line-height: 1.4; color: #3B4048"><b>Figure 1.</b> Safety and task success by configuration (% of 20 runs): task success, unsafe attempted, unsafe executed.</figcaption>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 12px">
+<div style="height: 440px; box-sizing: border-box; border: 3px dashed #8A9099; border-radius: 12px; background: #ECEBE6; display: flex; align-items: center; justify-content: center; padding: 28px; text-align: center; font-size: 28px; line-height: 1.35; color: #4A4F57">[Figure 2 — pending pilot]</div>
+<figcaption style="font-size: 25px; line-height: 1.4; color: #3B4048"><b>Figure 2.</b> Escape attacks blocked out of [N], per configuration.</figcaption>
+</figure>
+<figure style="margin: 0; display: flex; flex-direction: column; gap: 12px">
+<div style="height: 440px; box-sizing: border-box; border: 3px dashed #8A9099; border-radius: 12px; background: #ECEBE6; display: flex; align-items: center; justify-content: center; padding: 28px; text-align: center; font-size: 28px; line-height: 1.35; color: #4A4F57">[Figure 3 — pending benchmark]</div>
+<figcaption style="font-size: 25px; line-height: 1.4; color: #3B4048"><b>Figure 3.</b> Median and p95 latency of <code>getpid</code> and <code>stat</code>, with and without enforcement.</figcaption>
+</figure>
+</div>
+</div>
+</section>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 48px; min-width: 0">
+<section style="display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; align-items: baseline; gap: 18px; padding-bottom: 14px; border-bottom: 4px solid {{accent}}">
+<span style="font-family: Arial, Helvetica, sans-serif; font-size: 38px; font-weight: 700; color: {{accent}}">05</span>
+<h2 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 60px; line-height: 1.05; font-weight: 700; letter-spacing: -0.01em">Discussion</h2>
+</div>
+<p style="margin: 0; font-size: 31px; line-height: 1.42">After a child process is labeled, writing the same shell command in a different way does not change what that process is allowed to do. Path traversal and prefix tricks fail because paths are checked after normalization. Attempts to widen a label fail because labels can only narrow.</p>
+<p style="margin: 0; font-size: 31px; line-height: 1.42"><code>agentd</code> keeps its human label, so the trusted code stays small. It labels only the forked child before <code>exec</code>. If labeling fails, the child exits with status 126.</p>
+<p style="margin: 0; font-size: 31px; line-height: 1.42"><b>Limitations.</b> These results do not yet show that Warden outperforms prompt rules or a deny-list. The kernel has no network, symbolic links or kernel-managed working directory, and the pilot uses 20 author-written tasks, one model and one repetition per configuration.</p>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; align-items: baseline; gap: 18px; padding-bottom: 14px; border-bottom: 4px solid {{accent}}">
+<span style="font-family: Arial, Helvetica, sans-serif; font-size: 38px; font-weight: 700; color: {{accent}}">06</span>
+<h2 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 60px; line-height: 1.05; font-weight: 700; letter-spacing: -0.01em">Conclusion &amp; Future Work</h2>
+</div>
+<p style="margin: 0; font-size: 31px; line-height: 1.42">An agent's permissions can follow its processes across <code>fork</code> and <code>exec</code> and be checked at one kernel entry point. The kernel does not need to parse command text.</p>
+<ul style="margin: 0; padding-left: 1.1em; font-size: 31px; line-height: 1.42; display: flex; flex-direction: column; gap: 12px">
+<li>Run the escape suite, 80-run pilot and microbenchmarks.</li>
+<li>Add file-writer provenance, per-session limits and a session-wide kill switch.</li>
+<li>Expand to more tasks, at least two models and repeated trials.</li>
+</ul>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 18px">
+<h2 style="margin: 0; padding-bottom: 12px; border-bottom: 3px solid #16181D; font-family: Arial, Helvetica, sans-serif; font-size: 44px; line-height: 1.1; font-weight: 700">References</h2>
+<ol style="margin: 0; padding-left: 1.3em; font-size: 25px; line-height: 1.4; color: #2A2E35; display: flex; flex-direction: column; gap: 12px">
+<li>Debenedetti et al. AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents. NeurIPS 2024, Datasets and Benchmarks.</li>
+<li>Greshake et al. Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection. 2023. arXiv:2302.12173.</li>
+<li>Watson et al. Capsicum: Practical Capabilities for UNIX. USENIX Security 2010.</li>
+</ol>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 18px">
+<h2 style="margin: 0; padding-bottom: 12px; border-bottom: 3px solid #16181D; font-family: Arial, Helvetica, sans-serif; font-size: 44px; line-height: 1.1; font-weight: 700">Acknowledgements</h2>
+<p style="margin: 0; font-size: 27px; line-height: 1.4; color: #2A2E35">[Advisor, lab, funding source, and anyone who helped with testing.]</p>
+</section>
+</div>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1F4FD1","options":["#1F4FD1","#B4441F","#0F7B5F","#16181D"]},"$preview":{"width":4032,"height":3264}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#1F4FD1' };
+}
+}
+</script>
+</body>
+</html>

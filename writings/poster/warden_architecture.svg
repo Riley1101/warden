@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="1150" viewBox="0 0 1060 1150" font-family="Inter, sans-serif">
+<defs>
+<marker id="k" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="#1F1E1C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="#0F6E56" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+<rect width="1060" height="1150" fill="#FFFFFF"/>
+<rect x="628.0" y="40" width="124" height="56" rx="12" fill="#FFFFFF" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="690" y="74.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">DeepSeek</text>
+<rect x="768.0" y="40" width="124" height="56" rx="12" fill="#FFFFFF" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="830" y="74.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">Gemini</text>
+<rect x="908.0" y="40" width="124" height="56" rx="12" fill="#FFFFFF" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="970" y="74.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">OpenAI</text>
+<rect x="60" y="160" width="920" height="210" rx="20" fill="none" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="955" y="352" font-size="16" font-weight="500" fill="#1F1E1C" text-anchor="end">User space</text>
+<rect x="115.0" y="225" width="190" height="74" rx="12" fill="#FFFFFF" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="210" y="259.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">Operator</text>
+<text x="210" y="279.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="middle">natural-language request</text>
+<rect x="425.0" y="225" width="190" height="74" rx="12" fill="#FFFFFF" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="520" y="259.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">bridge.py</text>
+<text x="520" y="279.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="middle">host coordinator</text>
+<rect x="735.0" y="225" width="230" height="74" rx="12" fill="#FFFFFF" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="850" y="259.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">OpenRouter API</text>
+<text x="850" y="279.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="middle">model from OPENROUTER_MODEL</text>
+<line x1="307" y1="262.0" x2="423" y2="262.0" stroke="#1F1E1C" stroke-width="2" marker-start="url(#k)" marker-end="url(#k)"/>
+<text x="365.0" y="250.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="middle">request / output</text>
+<line x1="617" y1="262.0" x2="733" y2="262.0" stroke="#1F1E1C" stroke-width="2" marker-start="url(#k)" marker-end="url(#k)"/>
+<text x="675.0" y="250.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="middle">prompt / tool call</text>
+<line x1="794.0" y1="221" x2="698.0" y2="100" stroke="#1F1E1C" stroke-width="2" marker-start="url(#k)" marker-end="url(#k)"/>
+<line x1="843.0" y1="221" x2="831.0" y2="100" stroke="#1F1E1C" stroke-width="2" marker-start="url(#k)" marker-end="url(#k)"/>
+<line x1="892.0" y1="221" x2="964.0" y2="100" stroke="#1F1E1C" stroke-width="2" marker-start="url(#k)" marker-end="url(#k)"/>
+<line x1="502" y1="303" x2="502" y2="516" stroke="#1F1E1C" stroke-width="2" marker-end="url(#k)"/>
+<line x1="538" y1="516" x2="538" y2="303" stroke="#0F6E56" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#r)"/>
+<text x="488" y="415" font-size="14" font-weight="600" fill="#1F1E1C" text-anchor="end">command + newline</text>
+<text x="488" y="434" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="end">Unix socket /tmp/warden-agent.sock</text>
+<text x="552" y="415" font-size="14" font-weight="600" fill="#0F6E56" text-anchor="start">output + exit status</text>
+<text x="552" y="434" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="start">bridge reads until exit trailer</text>
+<rect x="60" y="475" width="920" height="625" rx="20" fill="none" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="955" y="1082" font-size="16" font-weight="500" fill="#1F1E1C" text-anchor="end">Warden</text>
+<rect x="370.0" y="520" width="300" height="74" rx="12" fill="#FFFFFF" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="520" y="554.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">Agent channel</text>
+<text x="520" y="574.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="middle">COM2 → /dev/agent</text>
+<rect x="370.0" y="670" width="300" height="74" rx="12" fill="#FAEEDA" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="520" y="704.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">agentd parent</text>
+<text x="520" y="724.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="middle">keeps human label · never runs input</text>
+<rect x="370.0" y="820" width="300" height="74" rx="12" fill="#EEEDFE" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="520" y="854.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">agent child</text>
+<text x="520" y="874.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="middle">labeled agent · runs /bin/sh -c</text>
+<rect x="370.0" y="970" width="300" height="74" rx="12" fill="#E1F5EE" stroke="#1F1E1C" stroke-width="1.8"/>
+<text x="520" y="1004.0" font-size="17" font-weight="600" fill="#1F1E1C" text-anchor="middle">Kernel</text>
+<text x="520" y="1024.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="middle">policy checkpoint</text>
+<line x1="502" y1="598" x2="502" y2="666" stroke="#1F1E1C" stroke-width="2" marker-end="url(#k)"/>
+<line x1="538" y1="666" x2="538" y2="598" stroke="#0F6E56" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#r)"/>
+<text x="488" y="637.0" font-size="14" font-weight="600" fill="#1F1E1C" text-anchor="end">raw bytes</text>
+<text x="552" y="637.0" font-size="13" font-weight="400" fill="#0F6E56" text-anchor="start" font-family="DejaVu Sans Mono, monospace">output + \0EXIT &lt;code&gt;\n</text>
+<line x1="502" y1="748" x2="502" y2="816" stroke="#1F1E1C" stroke-width="2" marker-end="url(#k)"/>
+<line x1="538" y1="816" x2="538" y2="748" stroke="#0F6E56" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#r)"/>
+<text x="488" y="779.0" font-size="14" font-weight="600" fill="#1F1E1C" text-anchor="end">pipe() + fork()</text>
+<text x="488" y="798.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="end">child: mark_agent(), then exec</text>
+<text x="552" y="787.0" font-size="14" font-weight="600" fill="#0F6E56" text-anchor="start">stdout + stderr via pipe</text>
+<line x1="502" y1="898" x2="502" y2="966" stroke="#1F1E1C" stroke-width="2" marker-end="url(#k)"/>
+<line x1="538" y1="966" x2="538" y2="898" stroke="#0F6E56" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#r)"/>
+<text x="488" y="929.0" font-size="14" font-weight="600" fill="#1F1E1C" text-anchor="end">every system call</text>
+<text x="488" y="948.0" font-size="13" font-weight="400" fill="#5F5E5A" text-anchor="end">capability + write-scope checks</text>
+<text x="552" y="937.0" font-size="14" font-weight="600" fill="#0F6E56" text-anchor="start">allowed or denied</text>
+<line x1="60" y1="1128" x2="110" y2="1128" stroke="#1F1E1C" stroke-width="2" marker-end="url(#k)"/>
+<text x="122" y="1133" font-size="13" font-weight="400" fill="#1F1E1C" text-anchor="start">Request path</text>
+<line x1="250" y1="1128" x2="300" y2="1128" stroke="#0F6E56" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#r)"/>
+<text x="312" y="1133" font-size="13" font-weight="400" fill="#1F1E1C" text-anchor="start">Result path</text>
+<rect x="430" y="1118" width="20" height="20" rx="4" fill="#FAEEDA" stroke="#1F1E1C" stroke-width="1.2"/>
+<text x="460" y="1133" font-size="13" font-weight="400" fill="#1F1E1C" text-anchor="start">Human label</text>
+<rect x="560" y="1118" width="20" height="20" rx="4" fill="#EEEDFE" stroke="#1F1E1C" stroke-width="1.2"/>
+<text x="590" y="1133" font-size="13" font-weight="400" fill="#1F1E1C" text-anchor="start">Agent label (survives exec and forks)</text>
+<rect x="830" y="1118" width="20" height="20" rx="4" fill="#E1F5EE" stroke="#1F1E1C" stroke-width="1.2"/>
+<text x="860" y="1133" font-size="13" font-weight="400" fill="#1F1E1C" text-anchor="start">Enforces policy by label</text>
+</svg>

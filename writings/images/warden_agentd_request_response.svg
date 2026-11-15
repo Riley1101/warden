@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">Warden agentd request and response path</title>
+  <desc id="desc">An operator request goes through bridge.py to a selected model. The model returns one shell command. The bridge sends that command over a Unix socket and QEMU COM2 to agentd. Agentd forks a child, labels it, runs the shell, and returns combined output and an exit code.</desc>
+  <defs>
+    <marker id="req" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#5146a5"/></marker>
+    <marker id="res" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#087f5b"/></marker>
+    <marker id="neu" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#55534f"/></marker>
+    <style>
+      .s{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.t{font-size:30px;font-weight:700;fill:#171714}.sub{font-size:15px;fill:#68655f}.zone{font-size:12px;font-weight:700;letter-spacing:1.5px}.head{font-size:16px;font-weight:700;fill:#171714}.small{font-size:12px;fill:#68655f}.label{font-size:14px;font-weight:600;fill:#282724}.code{font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;fill:#37352f}.request{stroke:#5146a5;stroke-width:2;fill:none;marker-end:url(#req)}.response{stroke:#087f5b;stroke-width:2;fill:none;marker-end:url(#res)}.neutral{stroke:#55534f;stroke-width:1.7;fill:none;marker-end:url(#neu)}
+    </style>
+  </defs>
+
+  <rect width="1400" height="900" fill="#fbfaf7"/>
+  <text x="42" y="50" class="s t">How <tspan font-family="SFMono-Regular,Consolas,monospace">agentd</tspan> handles a request and returns a result</text>
+  <text x="42" y="78" class="s sub">The model proposes a command; Warden executes it under a kernel-enforced agent label.</text>
+
+  <!-- Host -->
+  <rect x="28" y="105" width="1344" height="245" rx="16" fill="#f4f2ed" stroke="#d8d4cb"/>
+  <text x="50" y="133" class="s zone" fill="#66635d">HOST USER SPACE</text>
+
+  <g class="s">
+    <rect x="72" y="170" width="210" height="78" rx="11" fill="#fff" stroke="#bdb8ae"/>
+    <text x="177" y="201" text-anchor="middle" class="head">Operator</text>
+    <text x="177" y="224" text-anchor="middle" class="small">natural-language request</text>
+
+    <rect x="440" y="170" width="220" height="78" rx="11" fill="#fff" stroke="#bdb8ae"/>
+    <text x="550" y="201" text-anchor="middle" class="head">bridge.py</text>
+    <text x="550" y="224" text-anchor="middle" class="small">validates and forwards</text>
+
+    <rect x="820" y="170" width="280" height="78" rx="11" fill="#fff" stroke="#bdb8ae"/>
+    <text x="960" y="201" text-anchor="middle" class="head">OpenRouter + selected model</text>
+    <text x="960" y="224" text-anchor="middle" class="small">one run_shell tool call</text>
+  </g>
+
+  <line x1="282" y1="192" x2="430" y2="192" class="request"/>
+  <text x="356" y="181" text-anchor="middle" class="s label">1 · request</text>
+  <line x1="660" y1="192" x2="810" y2="192" class="request"/>
+  <text x="735" y="181" text-anchor="middle" class="s label">2 · prompt</text>
+  <line x1="820" y1="229" x2="670" y2="229" class="response"/>
+  <text x="745" y="267" text-anchor="middle" class="s code">3 · { "command": "ls /home/work" }</text>
+
+  <!-- Channel -->
+  <rect x="190" y="305" width="1020" height="92" rx="12" fill="#fffaf0" stroke="#d0a34b"/>
+  <text x="700" y="332" text-anchor="middle" class="s zone" fill="#986b15">AGENT CHANNEL</text>
+  <text x="700" y="360" text-anchor="middle" class="s label">Unix socket → QEMU COM2 → /dev/agent</text>
+  <text x="700" y="382" text-anchor="middle" class="s small">request: command + newline · response: output bytes + NUL-prefixed exit trailer</text>
+  <path d="M550 248V286Q550 305 569 305" class="request"/>
+
+  <!-- Warden -->
+  <rect x="28" y="420" width="1344" height="412" rx="16" fill="#f4f1fb" stroke="#d8d0ee"/>
+  <text x="50" y="449" class="s zone" fill="#5a4ca4">WARDEN GUEST</text>
+
+  <g class="s">
+    <rect x="80" y="502" width="240" height="102" rx="12" fill="#fff7db" stroke="#b88618" stroke-width="1.5"/>
+    <text x="200" y="535" text-anchor="middle" class="head">agentd parent</text>
+    <text x="200" y="559" text-anchor="middle" class="small">human-labeled supervisor</text>
+    <text x="200" y="581" text-anchor="middle" class="small">pipe() · fork() · wait()</text>
+
+    <rect x="430" y="502" width="250" height="102" rx="12" fill="#eeedfe" stroke="#5a4ca4" stroke-width="1.5"/>
+    <text x="555" y="535" text-anchor="middle" class="head">forked child</text>
+    <text x="555" y="559" text-anchor="middle" class="small">stdout + stderr → pipe</text>
+    <text x="555" y="581" text-anchor="middle" class="code">mark_agent(...)</text>
+
+    <rect x="790" y="502" width="250" height="102" rx="12" fill="#eeedfe" stroke="#5a4ca4" stroke-width="1.5"/>
+    <text x="915" y="535" text-anchor="middle" class="head">/bin/sh -c command</text>
+    <text x="915" y="559" text-anchor="middle" class="small">label kept across exec</text>
+    <text x="915" y="581" text-anchor="middle" class="small">descendants inherit label</text>
+
+    <rect x="1135" y="502" width="190" height="102" rx="12" fill="#e5f5ee" stroke="#087f5b" stroke-width="1.5"/>
+    <text x="1230" y="535" text-anchor="middle" class="head">Warden kernel</text>
+    <text x="1230" y="559" text-anchor="middle" class="small">syscall capability check</text>
+    <text x="1230" y="581" text-anchor="middle" class="small">normalized path scope</text>
+  </g>
+
+  <path d="M700 397V465H200V492" class="request"/>
+  <text x="405" y="455" text-anchor="middle" class="s label">4 · agentd reads one command</text>
+  <line x1="320" y1="553" x2="420" y2="553" class="neutral"/>
+  <text x="370" y="540" text-anchor="middle" class="s small">5 · fork</text>
+  <line x1="680" y1="553" x2="780" y2="553" class="neutral"/>
+  <text x="730" y="540" text-anchor="middle" class="s small">6 · exec</text>
+  <line x1="1040" y1="553" x2="1125" y2="553" class="request"/>
+  <text x="1083" y="540" text-anchor="middle" class="s small">7 · syscalls</text>
+
+  <rect x="430" y="670" width="610" height="72" rx="10" fill="#fff" stroke="#c7c2ba"/>
+  <text x="735" y="698" text-anchor="middle" class="s label">8 · child result</text>
+  <text x="735" y="723" text-anchor="middle" class="s small">combined stdout/stderr through the pipe, followed by the process exit status</text>
+  <path d="M915 604V660" class="response"/>
+  <path d="M430 706H200V614" class="response"/>
+
+  <path d="M200 604V770H700V407" class="response"/>
+  <text x="460" y="795" text-anchor="middle" class="s label">9 · agentd streams output, then writes "\0EXIT &lt;code&gt;\n"</text>
+  <path d="M1210 350H1270V286H550V258" class="response"/>
+  <text x="1030" y="283" text-anchor="middle" class="s label">10 · bridge displays output + [exit N]</text>
+
+  <!-- Legend -->
+  <line x1="46" y1="866" x2="91" y2="866" class="request"/>
+  <text x="106" y="871" class="s small">request / execution</text>
+  <line x1="270" y1="866" x2="315" y2="866" class="response"/>
+  <text x="330" y="871" class="s small">result / response</text>
+  <rect x="1074" y="849" width="284" height="34" rx="8" fill="#fff7db" stroke="#d4b56c"/>
+  <text x="1216" y="871" text-anchor="middle" class="s small">agentd stays human; only the child is labeled</text>
+</svg>
