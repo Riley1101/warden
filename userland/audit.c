@@ -6,24 +6,25 @@
 /*
  * audit: print the audit log, oldest first. A gap in SEQ is records the
  * kernel's ring dropped. NEED is the capabilities asked for (on a mark,
- * those given): r read, w write, s spawn, k kill, H human only.
+ * those given), as caps_str spells them: r read, w write, s spawn,
+ * k kill, '-' for each one not in it. "HUMAN" is a humans-only call.
  */
 
-static void caps(char *out, uint32_t c) {
-  const char *letters = "rwsk";
-  int n = 0;
-  for (int i = 0; i < 4; i++)
-    if (c & (1u << i))
-      out[n++] = letters[i];
-  if (c & (1u << 30)) /* CAP_HUMAN, kernel-side */
-    out[n++] = 'H';
-  if (n == 0)
-    out[n++] = '-';
-  out[n] = '\0';
+#define CAP_HUMAN (1u << 30) /* kernel-side (kernel/include/cap.h) */
+
+static void need_str(char *out, uint32_t c) {
+  if (c & CAP_HUMAN)
+    strcpy(out, "HUMAN");
+  else
+    caps_str(out, c);
+}
+
+static const char *kind_str(uint32_t kind) {
+  return kind == AUDIT_MARK ? "mark" : kind == AUDIT_KILL ? "kill" : "denied";
 }
 
 int main(void) {
-  printf("%5s %5s %4s %-6s %-11s %-4s %-11s %s\n", "SEQ", "PID", "SESS",
+  printf("%5s %5s %4s %-6s %-12s %-5s %-11s %s\n", "SEQ", "PID", "SESS",
          "KIND", "CALL", "NEED", "RESULT", "PATH");
   struct audit_record r[16];
   uint64_t seq = 0;
@@ -31,10 +32,10 @@ int main(void) {
   while ((n = audit_read(r, 16, seq)) > 0) {
     for (int i = 0; i < n; i++) {
       char need[8];
-      caps(need, r[i].need);
-      printf("%5d %5d %4d %-6s %-11s %-4s %-11s %s\n", (int)r[i].seq,
+      need_str(need, r[i].need);
+      printf("%5d %5d %4d %-6s %-12s %-5s %-11s %s\n", (int)r[i].seq,
              r[i].pid, (int)r[i].session,
-             r[i].kind == AUDIT_MARK ? "mark" : "denied", r[i].syscall, need,
+             kind_str(r[i].kind), r[i].syscall, need,
              r[i].err == 0 ? "ok" : errname(-r[i].err), r[i].path);
     }
     seq = r[n - 1].seq;

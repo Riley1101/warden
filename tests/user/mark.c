@@ -13,6 +13,7 @@
  */
 
 #define RW (CAP_FS_READ | CAP_FS_WRITE)
+#define MAXP 16 /* processes per session: room enough, see session.c */
 
 #define DENIED(call) FAILS(call, ECAPDENIED)
 
@@ -21,7 +22,7 @@
 static int as_agent(uint32_t caps, const char *scope, int (*fn)(void)) {
   int pid = fork();
   if (pid == 0) {
-    if (mark_agent(1, caps, scope) != 0)
+    if (mark_agent(1, caps, scope, MAXP) != 0)
       _exit(99);
     _exit(fn());
   }
@@ -130,7 +131,7 @@ static int reader(void) {
   if (!DENIED(kill(human_pid, SIGKILL)))
     return 38;
   /* asking for the caps back changes nothing */
-  if (mark_agent(1, CAP_ALL, "/home/work") != 0 || !DENIED(fork()))
+  if (mark_agent(1, CAP_ALL, "/home/work", MAXP) != 0 || !DENIED(fork()))
     return 39;
   return 0;
 }
@@ -151,11 +152,11 @@ static int nothing(void) {
 /* What the label allows, probed: the same again is fine, more is not.
  * It keeps CAP_SPAWN, which the fork and exec after it need. */
 static int still_narrow(void) {
-  if (mark_agent(1, RW | CAP_SPAWN, "/home/work") != 0)
+  if (mark_agent(1, RW | CAP_SPAWN, "/home/work", MAXP) != 0)
     return 0;
-  if (!FAILS(mark_agent(1, RW, "/home"), EPERM))
+  if (!FAILS(mark_agent(1, RW, "/home", MAXP), EPERM))
     return 0;
-  if (!FAILS(mark_agent(2, RW, "/home/work"), EPERM))
+  if (!FAILS(mark_agent(2, RW, "/home/work", MAXP), EPERM))
     return 0;
   return 1;
 }
@@ -192,19 +193,19 @@ int main(int argc, char **argv) {
     return 64;
 
   /* A bad scope is refused, and leaves the process human. */
-  if (!FAILS(mark_agent(1, RW, "relative"), EINVAL))
+  if (!FAILS(mark_agent(1, RW, "relative", MAXP), EINVAL))
     return 4;
-  if (!FAILS(mark_agent(1, RW, (const char *)8), EFAULT))
+  if (!FAILS(mark_agent(1, RW, (const char *)8, MAXP), EFAULT))
     return 5;
 
-  if (mark_agent(1, RW | CAP_SPAWN, "/home/work/") != 0)
+  if (mark_agent(1, RW | CAP_SPAWN, "/home/work/", MAXP) != 0)
     return 6;
   if (!still_narrow())
     return 7;
   /* "/home/workevil" shares the prefix but isn't inside */
-  if (!FAILS(mark_agent(1, RW, "/home/workevil"), EPERM))
+  if (!FAILS(mark_agent(1, RW, "/home/workevil", MAXP), EPERM))
     return 8;
-  if (!FAILS(mark_agent(1, RW, "/home/work/.."), EPERM))
+  if (!FAILS(mark_agent(1, RW, "/home/work/..", MAXP), EPERM))
     return 9;
 
   /* fork copies it */
@@ -226,9 +227,9 @@ int main(int argc, char **argv) {
     return 61;
 
   /* narrowing the scope further sticks */
-  if (mark_agent(1, CAP_FS_READ, "/home/work/sub") != 0)
+  if (mark_agent(1, CAP_FS_READ, "/home/work/sub", MAXP) != 0)
     return 62;
-  if (!FAILS(mark_agent(1, RW, "/home/work"), EPERM))
+  if (!FAILS(mark_agent(1, RW, "/home/work", MAXP), EPERM))
     return 63;
   return 0;
 }

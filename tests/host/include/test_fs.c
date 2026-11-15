@@ -296,6 +296,67 @@ static void test_random(void) {
   CHECK(used() == before);
 }
 
+/* The writer label of `path`, and its limit; NULL if it can't open. */
+static const struct label *writer_of(const char *path, uint32_t *max) {
+  struct node *n;
+  if (fs_open(path, O_RDONLY, &n) != 0)
+    return NULL;
+  const struct label *l = fs_writer(n, max);
+  fs_put(n); /* still linked: the label stays valid */
+  return l;
+}
+
+static void test_writer(void) {
+  struct label human = {0}, a = {0}, b = {0}, other = {0};
+  CHECK(label_narrow(&a, 5, CAP_ALL, "/w") == 0);
+  CHECK(label_narrow(&b, 5, CAP_FS_READ | CAP_FS_WRITE, "/w/sub") == 0);
+  CHECK(label_narrow(&other, 6, CAP_ALL, "/") == 0);
+  uint32_t max;
+
+  CHECK(fs_mkdir("/w") == 0);
+  CHECK(put_str("/w/f", "x") == 1);
+  const struct label *l = writer_of("/w/f", &max);
+  CHECK(l != NULL && l->origin == ORIGIN_HUMAN && max == 0); /* fresh: human */
+
+  struct node *n;
+  CHECK(fs_open("/w/f", O_WRONLY, &n) == 0);
+  CHECK(fs_note_writer(n, &human, 0) == 0);
+  CHECK(fs_writer(n, &max)->origin == ORIGIN_HUMAN);
+  CHECK(fs_note_writer(n, &a, 8) == 0);
+  CHECK(fs_writer(n, &max)->session == 5 && max == 8);
+  /* the same session narrows it, and the lowest limit stays */
+  CHECK(fs_note_writer(n, &b, 20) == 0);
+  CHECK(fs_writer(n, &max)->caps == (CAP_FS_READ | CAP_FS_WRITE) && max == 8);
+  CHECK_STR(fs_writer(n, &max)->scope, "/w/sub");
+  /* a human's write doesn't wash it; another session can't write it */
+  CHECK(fs_note_writer(n, &human, 0) == 0);
+  CHECK(fs_writer(n, &max)->origin == ORIGIN_AGENT);
+  CHECK(fs_note_writer(n, &other, 8) == -ECAPDENIED);
+  CHECK(fs_writer(n, &max)->session == 5);
+  fs_put(n);
+
+  /* stat reports it */
+  struct stat st;
+  CHECK(fs_stat("/w/f", &st) == 0);
+  CHECK(st.agent == 1 && st.session == 5);
+  CHECK(st.caps == (CAP_FS_READ | CAP_FS_WRITE));
+  CHECK(fs_stat("/w", &st) == 0 && st.agent == 0 && st.session == 0);
+
+  /* rename moves it along; truncating by a human keeps it */
+  CHECK(fs_rename("/w/f", "/g") == 0);
+  l = writer_of("/g", &max);
+  CHECK(l != NULL && l->origin == ORIGIN_AGENT && l->session == 5);
+  CHECK(put_str("/g", "y") == 1);
+  CHECK(writer_of("/g", &max)->origin == ORIGIN_AGENT);
+
+  /* unlinking clears it: a new file there starts human */
+  CHECK(fs_unlink("/g") == 0);
+  CHECK(put_str("/g", "z") == 1);
+  CHECK(writer_of("/g", &max)->origin == ORIGIN_HUMAN);
+  CHECK(fs_unlink("/g") == 0);
+  CHECK(fs_unlink("/w") == 0);
+}
+
 int main(void) {
   mem = malloc(MEM_SIZE);
   struct pmm_region r = {0x1000, MEM_SIZE - 0x1000};
@@ -309,6 +370,7 @@ int main(void) {
   test_rename();
   test_unlink_open();
   test_tar_load();
+  test_writer();
   test_random();
   free(mem);
   return CHECK_DONE();

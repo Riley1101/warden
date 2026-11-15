@@ -133,6 +133,18 @@ int test_audit(void) {
     return 0;
 }
 
+/* A fork bomb stops at the session limit; kill_session ends it all. */
+int test_session(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/session", "session");
+    return 0;
+}
+
+/* What an agent writes runs as that agent, whoever runs it. */
+int test_file_labels(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/flabel", "flabel");
+    return 0;
+}
+
 /* The shell in /bin, running pipelines and redirections (tests/user). */
 int test_shell(void) {
     RUN_EXPECT(W_EXITCODE(0), "/test/shell", "shell");

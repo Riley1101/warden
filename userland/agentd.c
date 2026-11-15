@@ -24,6 +24,7 @@
 #define AGENT_SESSION 1
 #define AGENT_CAPS    CAP_ALL
 #define AGENT_SCOPE   "/home/work"
+#define AGENT_MAX_PROCS 32 /* in the session at once: a fork bomb stops here */
 
 /* The first newline in the `n` bytes at `buf`, or NULL (libc has no memchr). */
 static char *find_newline(char *buf, size_t n) {
@@ -54,7 +55,8 @@ static void run(int agent, char *line) {
     close(fds[0]);
     close(fds[1]);
     close(agent);
-    if (mark_agent(AGENT_SESSION, AGENT_CAPS, AGENT_SCOPE) != 0) {
+    if (mark_agent(AGENT_SESSION, AGENT_CAPS, AGENT_SCOPE,
+                   AGENT_MAX_PROCS) != 0) {
       complain("agentd", "mark_agent", errno);
       _exit(126); /* never run a command unlabeled */
     }

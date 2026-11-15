@@ -52,9 +52,9 @@ scoped to `/home/work` can't delete `/bin/ls` through `sh -c`, with the denial i
 
 ## Week Three (Escape suite and agentd configurations)
 
-- [ ] Session process-count limit, set through `mark_agent`
-- [ ] `SYS_kill_session` kill switch
-- [ ] File labels: `writer_origin`/`writer_session`; `exec` of an agent-written file gets the agent label
+- [x] Session process-count limit, set through `mark_agent`
+- [x] `SYS_kill_session` kill switch
+- [x] File labels: `writer_origin`/`writer_session`; `exec` of an agent-written file gets the agent label
 - [ ] Escape suite in `make test`, every one blocked: path traversal, prefix confusion, label clearing,
       shell escape, fork bomb, executing an agent-written script, bad pointers, reading the audit log, kill switch
 - [ ] agentd userspace policy: string-matching deny-lists of commands and paths

@@ -39,6 +39,23 @@ int cap_path(const struct label *l, const char *path, uint32_t need) {
   return 0;
 }
 
+int label_meet(struct label *a, const struct label *b) {
+  if (b->origin == ORIGIN_HUMAN)
+    return 0;
+  if (a->origin == ORIGIN_HUMAN) {
+    *a = *b;
+    return 0;
+  }
+  if (a->session != b->session)
+    return -ECAPDENIED;
+  a->caps &= b->caps;
+  if (in_scope(a->scope, b->scope))
+    memcpy(a->scope, b->scope, strlen(b->scope) + 1); /* b's is deeper */
+  else if (!in_scope(b->scope, a->scope))
+    a->caps = 0; /* side by side: neither scope holds the other */
+  return 0;
+}
+
 int label_narrow(struct label *l, uint32_t session, uint32_t caps,
                  const char *scope) {
   char norm[PATH_MAX];

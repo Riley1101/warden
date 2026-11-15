@@ -11,6 +11,7 @@
  */
 
 #define SESSION 7
+#define MAXP 16
 
 static uint64_t last_seq(void) {
   struct audit_record r[4];
@@ -26,7 +27,7 @@ static uint64_t last_seq(void) {
 static int as_agent(uint32_t caps, int (*fn)(void)) {
   int pid = fork();
   if (pid == 0) {
-    if (mark_agent(SESSION, caps, "/home/work") != 0)
+    if (mark_agent(SESSION, caps, "/home/work", MAXP) != 0)
       _exit(99);
     _exit(fn());
   }
@@ -39,7 +40,7 @@ static int as_agent(uint32_t caps, int (*fn)(void)) {
 static int escape(void) {
   if (!FAILS(unlink("/audit/victim"), ECAPDENIED))
     return 1;
-  if (!FAILS(mark_agent(SESSION, CAP_FS_READ, "/"), EPERM)) /* widening */
+  if (!FAILS(mark_agent(SESSION, CAP_FS_READ, "/", MAXP), EPERM)) /* widening */
     return 2;
   return 0;
 }

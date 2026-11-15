@@ -223,17 +223,18 @@ test: host-test                      ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-HOST_TESTS := path cap audit fmt pmm pt slab elf tar malloc fs
+HOST_TESTS := path cap audit session fmt pmm pt slab elf tar malloc fs
 $(HOST_BUILD)/test_path: kernel/path.c
 $(HOST_BUILD)/test_cap: kernel/cap.c kernel/path.c
 $(HOST_BUILD)/test_audit: kernel/audit.c
+$(HOST_BUILD)/test_session: kernel/session.c
 $(HOST_BUILD)/test_fmt: kernel/fmt.c
 $(HOST_BUILD)/test_pmm: kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_pt: kernel/pt.c kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_slab: kernel/slab.c kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_elf: kernel/elf.c
 $(HOST_BUILD)/test_tar: kernel/tar.c tests/host/tar_builder.h
-$(HOST_BUILD)/test_fs: kernel/fs.c kernel/path.c kernel/tar.c kernel/slab.c kernel/pmm.c \
+$(HOST_BUILD)/test_fs: kernel/fs.c kernel/cap.c kernel/path.c kernel/tar.c kernel/slab.c kernel/pmm.c \
     tests/host/lock_stub.c tests/host/tar_builder.h
 $(HOST_BUILD)/test_malloc: libc/malloc.c tests/host/libc_rename.h
 # the tests ask for absurd sizes; the -Walloc-size* warnings are gcc-only

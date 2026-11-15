@@ -107,6 +107,9 @@ int sched_nthreads(void);
  * the caller's; returns how many were written. */
 int sched_snapshot(struct procinfo *out, int max);
 
+/* Kill every live process of agent session `session`: how many. */
+int sched_kill_session(uint32_t session);
+
 /* Free dead threads. Thread context only: it calls kfree, which an
  * interrupt handler must not (the allocator has no lock). */
 void sched_reap(void);

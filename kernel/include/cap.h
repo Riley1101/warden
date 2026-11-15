@@ -61,3 +61,13 @@ int cap_path(const struct label *l, const char *path, uint32_t need);
  */
 int label_narrow(struct label *l, uint32_t session, uint32_t caps,
                  const char *scope);
+
+/*
+ * Narrow `a` by `b`, where neither may simply ask: a file's writer label
+ * by the next agent to write it, a process by the writer label of the
+ * file it execs. A human `b` changes nothing; a human `a` becomes `b`.
+ * Two agents of one session meet: the caps both hold, the deeper scope,
+ * and no caps at all if the scopes don't nest. -ECAPDENIED for two
+ * sessions, which no label can be both of; `a` is unchanged then.
+ */
+int label_meet(struct label *a, const struct label *b);
