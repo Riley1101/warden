@@ -223,8 +223,9 @@ test: host-test                      ## Run all tests
 	$(MAKE) TEST=1 iso
 	./tests/qemu/run.sh build-test/warden.iso build-test/serial.log
 
-HOST_TESTS := path fmt pmm pt slab elf tar malloc fs
+HOST_TESTS := path cap fmt pmm pt slab elf tar malloc fs
 $(HOST_BUILD)/test_path: kernel/path.c
+$(HOST_BUILD)/test_cap: kernel/cap.c kernel/path.c
 $(HOST_BUILD)/test_fmt: kernel/fmt.c
 $(HOST_BUILD)/test_pmm: kernel/pmm.c tests/host/lock_stub.c
 $(HOST_BUILD)/test_pt: kernel/pt.c kernel/pmm.c tests/host/lock_stub.c

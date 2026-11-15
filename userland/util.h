@@ -57,6 +57,8 @@ __attribute__((unused)) static const char *errname(int e) {
     return "ENOSYS";
   case ENOTEMPTY:
     return "ENOTEMPTY";
+  case ECAPDENIED:
+    return "ECAPDENIED";
   default:
     return "error";
   }

@@ -1,6 +1,8 @@
 #include "util.h"
 
 #include <fcntl.h>
+#include <sys/agent.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 /*
@@ -11,9 +13,17 @@
  * then one last line, "\0EXIT <code>\n". The NUL keeps that line from
  * being mistaken for output. A command killed by a signal reports
  * 128 plus the signal, as a shell would.
+ *
+ * Every command runs as an agent: the child marks itself before exec,
+ * so sh and all it starts carry the label. agentd itself stays human.
  */
 
 #define LINE_MAX 4096
+
+/* The one profile until profiles come from a config file. */
+#define AGENT_SESSION 1
+#define AGENT_CAPS    CAP_ALL
+#define AGENT_SCOPE   "/home/work"
 
 /* The first newline in the `n` bytes at `buf`, or NULL (libc has no memchr). */
 static char *find_newline(char *buf, size_t n) {
@@ -44,6 +54,10 @@ static void run(int agent, char *line) {
     close(fds[0]);
     close(fds[1]);
     close(agent);
+    if (mark_agent(AGENT_SESSION, AGENT_CAPS, AGENT_SCOPE) != 0) {
+      complain("agentd", "mark_agent", errno);
+      _exit(126); /* never run a command unlabeled */
+    }
     char *const argv[] = {"sh", "-c", line, NULL};
     execv("/bin/sh", argv);
     _exit(127);
@@ -66,6 +80,13 @@ int main(void) {
   int agent = open("/dev/agent", O_RDWR);
   if (agent < 0) {
     complain("agentd", "/dev/agent", errno);
+    return 1;
+  }
+
+  /* The scope has to exist for the agent to work in it. */
+  if ((mkdir("/home") != 0 && errno != EEXIST) ||
+      (mkdir(AGENT_SCOPE) != 0 && errno != EEXIST)) {
+    complain("agentd", AGENT_SCOPE, errno);
     return 1;
   }
 

@@ -40,10 +40,10 @@ Four weeks. If something slips, protect in this order: escape suite > agent demo
 - [ ] `host/bridge.py` QEMU socket to LLM API, one JSONL log line per step
 - [ ] `agentd` in L1 mode: read an action, run `sh -c`, return stdout and exit code
 - [x] QEMU: `-serial stdio -serial unix:/tmp/warden-agent.sock,server,nowait`. Debug output only on COM1.
-- [ ] Provenance label in each process (`origin`, `session`, `capset`); inherited by `fork`, kept by `exec`
-- [ ] `SYS_mark_agent(session, caps)`: one-way, can only narrow; agentd marks the child before running the command
-- [ ] `cap.c`: `cap_check()` and component-aware `in_scope()` with host tests (`/home` vs `/homeevil`, `..`)
-- [ ] `cap_check` inside `dispatch()`, denied calls return `-ECAPDENIED`
+- [x] Provenance label in each process (`origin`, `session`, `capset`); inherited by `fork`, kept by `exec`
+- [x] `SYS_mark_agent(session, caps)`: one-way, can only narrow; agentd marks the child before running the command
+- [x] `cap.c`: `cap_check()` and component-aware `in_scope()` with host tests (`/home` vs `/homeevil`, `..`)
+- [x] `cap_check` inside `dispatch()`, denied calls return `-ECAPDENIED`
 - [ ] `audit.c` ring buffer and `SYS_audit_read` (human-only), host test for wraparound
 
 **Done when:** the model's command runs in warden from a host prompt (record it), and an agent

@@ -120,6 +120,13 @@ int test_agent_channel(void) {
     return 0;
 }
 
+/* Labels narrow in the child, and only there: the parent stays human. */
+int test_mark_agent(void) {
+    RUN_EXPECT(W_EXITCODE(0), "/test/mark", "mark");
+    KASSERT(thread_current()->label.origin == ORIGIN_HUMAN);
+    return 0;
+}
+
 /* The shell in /bin, running pipelines and redirections (tests/user). */
 int test_shell(void) {
     RUN_EXPECT(W_EXITCODE(0), "/test/shell", "shell");

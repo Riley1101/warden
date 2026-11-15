@@ -1,6 +1,7 @@
 #pragma once
 
 #include <abi/proc.h>
+#include <cap.h>
 #include <file.h>
 #include <idt.h>
 #include <stdint.h>
@@ -41,6 +42,7 @@ struct thread {
   struct thread *parent;  /* who may wait for it; NULL: nobody */
   int exit_status;        /* abi/wait.h encoding, once it is a zombie */
   struct file *fd[NFD];   /* open files; closed when it dies */
+  struct label label;     /* provenance: fork copies it, exec keeps it */
 };
 
 /* Make the code running now (kmain_late, on boot_stack) thread 0. Call

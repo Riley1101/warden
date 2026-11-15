@@ -30,6 +30,9 @@
 #define SYS_getdent    18 /* (int fd, struct dirent *d): 1, or 0 at the end */
 #define SYS_ps         19 /* (struct procinfo *buf, size_t max): how many
                              were written (abi/proc.h) */
+#define SYS_mark_agent 20 /* (uint32_t session, uint32_t caps, const char
+                             *scope): make this process an agent; only
+                             narrows (abi/cap.h) */
 
 /* A new program starts with 0, 1 and 2 open on the console; fork shares
  * the parent's descriptors, and exec keeps them. */

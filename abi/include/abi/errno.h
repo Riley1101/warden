@@ -22,3 +22,4 @@
 #define ENAMETOOLONG 36 // File name too long
 #define ENOSYS 38       // Function not implemented
 #define ENOTEMPTY 39    // Directory not empty
+#define ECAPDENIED 200  // An agent process lacks the capability or scope

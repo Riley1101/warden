@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
+#include <sys/agent.h>
 #include <sys/proc.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -105,4 +106,8 @@ void *sbrk(intptr_t inc) {
 
 int ps(struct procinfo *buf, size_t max) {
   return check(syscall3(SYS_ps, (long)buf, (long)max, 0));
+}
+
+int mark_agent(uint32_t session, uint32_t caps, const char *scope) {
+  return check(syscall3(SYS_mark_agent, session, caps, (long)scope));
 }
