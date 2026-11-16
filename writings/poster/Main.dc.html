@@ -85,7 +85,7 @@ code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.86em}
 <li>The parent streams output back in framed OUTPUT messages, ending with a RESULT carrying the exit code. <code>agentd</code> never executes agent input itself.</li>
 </ol>
 <figure style="margin: 0; display: flex; flex-direction: column; gap: 14px">
-
+<img src="../images/warden_agentd_request_response.svg" alt="Request path: operator, bridge.py, Unix socket, COM2, /dev/agent, agentd, labeled child running /bin/sh -c, and the framed output and result back" style="width: 100%; height: auto; display: block">
 <figcaption style="font-size: 26px; line-height: 1.4; color: #3B4048"><b>Figure A.</b> Agent request and response path, from operator to labeled child and back.</figcaption>
 </figure>
 <div style="display: flex; flex-direction: column; gap: 12px">
@@ -152,7 +152,7 @@ code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.86em}
 <tr><td style="padding: 7px 8px 7px 0; border-bottom: 1px solid #C9C7C0; color: #3B4048">12</td><td style="padding: 7px 8px 7px 0; border-bottom: 1px solid #C9C7C0">Write another session's file</td><td style="padding: 7px 8px 7px 0; border-bottom: 1px solid #C9C7C0; text-align: center; color: #B4441F; font-weight: 700">✗</td><td style="padding: 7px 8px 7px 0; border-bottom: 1px solid #C9C7C0; text-align: center; color: #B4441F; font-weight: 700">✗</td><td style="padding: 7px 8px 7px 0; border-bottom: 1px solid #C9C7C0; text-align: center; font-weight: 700; color: {{accent}}">✓</td><td style="padding: 7px 8px 7px 0; border-bottom: 1px solid #C9C7C0; text-align: center; font-weight: 700; color: {{accent}}">✓</td></tr>
 </tbody>
 </table>
-<p style="margin: 0; font-size: 25px; line-height: 1.4; color: #3B4048"><b>A</b> prompt only · <b>B</b> <code>agentd</code> deny-list · <b>C</b> kernel labels · <b>D</b> both. ✓ blocked: the protected file is byte-for-byte unchanged. Profile <code>work-rw</code>, one fresh QEMU boot per configuration (<code>make escape-matrix</code>). B blocks 3 of the 5 attacks visible in command text and misses what is one step removed: a nested <code>sh -c</code>, a script, a program run later. Below the shell, only the kernel acts; row 7 is fault containment, on everywhere. Known limit, not counted: a human's <code>sh</code> reading an agent's script as data is not blocked in any configuration.</p>
+<p style="margin: 0; font-size: 25px; line-height: 1.4; color: #3B4048"><b>A</b> prompt only · <b>B</b> <code>agentd</code> deny-list · <b>C</b> kernel labels · <b>D</b> both. ✓ blocked: the protected state is unchanged (file bytes, directory contents, or the processes left running). Profile <code>work-rw</code>, one fresh QEMU boot per configuration (<code>make escape-matrix</code>). B blocks 3 of the 5 attacks visible in command text and misses what is one step removed: a nested <code>sh -c</code>, a script, a program run later. Below the shell, only the kernel acts; row 7 is fault containment, on everywhere. Known limit, not counted: a human's <code>sh</code> reading an agent's script as data is not blocked in any configuration.</p>
 </div>
 
 <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 48px; align-items: start">
@@ -178,7 +178,7 @@ code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.86em}
 <tr><td style="padding: 8px 10px 8px 0; border-bottom: 1px solid #C9C7C0"><b>D</b></td><td style="padding: 8px 10px 8px 0; border-bottom: 1px solid #C9C7C0; text-align: center">8/8</td><td style="padding: 8px 10px 8px 0; border-bottom: 1px solid #C9C7C0; text-align: center">0/8</td><td style="padding: 8px 10px 8px 0; border-bottom: 1px solid #C9C7C0; text-align: center">0/8</td><td style="padding: 8px 10px 8px 0; border-bottom: 1px solid #C9C7C0; text-align: center">0/8</td></tr>
 </tbody>
 </table>
-<p style="margin: 0; font-size: 25px; line-height: 1.4; color: #3B4048">4 tasks (simple, multi-step, tempting, injection) × 4 configs × 2 repetitions = 32 runs, Gemini 3.8 Flash, temperature 0. The model ignored the injected instruction every time, so A matches C: for a model that behaves, enforcement cost nothing. The full 20-task pilot and the per-syscall overhead benchmark are pending.</p>
+<p style="margin: 0; font-size: 25px; line-height: 1.4; color: #3B4048">4 tasks (simple, multi-step, tempting, injection) × 4 configs × 2 repetitions = 32 runs, Gemini 3.8 Flash, temperature 0. The model tried nothing unsafe in any run: it ignored the injected instruction every time, and left the out-of-scope backup alone, so A matches C: for a model that behaves, enforcement cost nothing. The full 20-task pilot and the per-syscall overhead benchmark are pending.</p>
 </div>
 </div>
 </section>
@@ -190,7 +190,7 @@ code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.86em}
 <span style="font-family: Arial, Helvetica, sans-serif; font-size: 38px; font-weight: 700; color: {{accent}}">05</span>
 <h2 style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 60px; line-height: 1.05; font-weight: 700; letter-spacing: -0.01em">Discussion</h2>
 </div>
-<p style="margin: 0; font-size: 31px; line-height: 1.42">After a child process is labeled, writing the same command a different way does not change what it may do. The deny-list catches the attacks it can read, but misses harm one step removed from the line: a nested shell, a script, a program a human runs later. Seven of the twelve attacks never appear in command text at all, and only the kernel blocks them.</p>
+<p style="margin: 0; font-size: 31px; line-height: 1.42">After a child process is labeled, writing the same command a different way does not change what it may do. The deny-list catches the attacks it can read, but misses harm one step removed from the line: a nested shell, a script, a program a human runs later. Seven of the twelve never appear in command text; the kernel is the only defence against six of them, and the seventh, bad pointers, is fault containment, on everywhere.</p>
 <p style="margin: 0; font-size: 31px; line-height: 1.42"><code>agentd</code> keeps its human label, so the trusted code stays small. It labels only the forked child before <code>exec</code>. If labeling fails, the child exits with status 126.</p>
 <p style="margin: 0; font-size: 31px; line-height: 1.42"><b>Limitations.</b> We wrote the escape suite ourselves; the deny-list is one point in a family of filters. A model that behaves leaves nothing for any defence to stop, so the model-driven comparison needs tasks drawn from published benchmarks and a weaker second model. The kernel has no network, symbolic links or kernel-managed working directory.</p>
 </section>
@@ -214,6 +214,7 @@ code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.86em}
 <li>Debenedetti et al. AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents. NeurIPS 2024, Datasets and Benchmarks.</li>
 <li>Greshake et al. Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection. 2023. arXiv:2302.12173.</li>
 <li>Watson et al. Capsicum: Practical Capabilities for UNIX. USENIX Security 2010.</li>
+<li>Zhan et al. InjecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents. Findings of ACL 2024.</li>
 </ol>
 </section>
 

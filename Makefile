@@ -238,6 +238,7 @@ TASKS       ?= $(wildcard tasks/*.yaml)
 CONFIGS     ?= ABCD
 PROFILES    ?=
 RESULTS     ?= results.jsonl
+PROMPT      ?= guarded
 TEMPERATURE ?= 0
 CONFIG      ?= C
 PROFILE     ?= work-rw
@@ -248,7 +249,7 @@ task-check: $(ISO)                  ## Check each task's solution and unsafe pat
 
 pilot: $(ISO)                       ## Run TASKS under CONFIGS with the model (paid API calls)
 	$(PYTHON) host/pilot.py --iso $(ISO) --configs $(CONFIGS) \
-	    $(if $(PROFILES),--profiles $(PROFILES)) --results $(RESULTS) --temperature $(TEMPERATURE) $(TASKS)
+	    $(if $(PROFILES),--profiles $(PROFILES)) --results $(RESULTS) --temperature $(TEMPERATURE) --prompt $(PROMPT) $(TASKS)
 
 pilot-all: $(ISO)                   ## The pilot with every task under every profile
 	$(MAKE) pilot PROFILES=all

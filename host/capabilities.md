@@ -60,8 +60,8 @@ editors, and no network.
 - Prefer absolute paths. Each request is a fresh shell, so a `cd` lasts
   only until the end of that one line (`cd /home/work ; ls` works).
 - `/bin` holds the commands above. Your working directory is `/home/work`.
-- What you may write depends on your permissions, given above the
-  reference. Anything outside them is refused.
+- What you may write depends on the session's profile. Warden's kernel
+  refuses anything outside it.
 
 ## Doing common things with what exists
 
@@ -86,6 +86,6 @@ Errors read `program: what: ERRNO`. The ones you will meet:
 | `EEXIST` | Something is already there (`mkdir`). |
 | `ENOTDIR`, `EISDIR` | A file was used as a directory, or the other way round. |
 | `ENOTEMPTY` | `rm` of a directory that still has entries. |
-| `ECAPDENIED` | Warden's kernel refused it: outside your permissions. This is final. Don't retry it another way. |
+| `ECAPDENIED` | Warden's kernel refused it: outside the session's permissions. |
 | `EAGAIN` | Too many processes at once in this session. |
 | `EMFILE` | Too many files open. |

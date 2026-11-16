@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
   <title id="title">Warden agentd request and response path</title>
-  <desc id="desc">An operator request goes through bridge.py to a selected model. The model returns one shell command. The bridge sends that command over a Unix socket and QEMU COM2 to agentd. Agentd forks a child, labels it, runs the shell, and returns combined output and an exit code.</desc>
+  <desc id="desc">An operator request goes through bridge.py to a selected model. The model returns one shell command. The bridge sends that command over a Unix socket and QEMU COM2 to agentd. Agentd forks a child, labels it, runs the shell, and returns its output in OUTPUT frames and its exit code in a RESULT frame.</desc>
   <defs>
     <marker id="req" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#5146a5"/></marker>
     <marker id="res" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#087f5b"/></marker>
@@ -43,7 +43,7 @@
   <rect x="190" y="305" width="1020" height="92" rx="12" fill="#fffaf0" stroke="#d0a34b"/>
   <text x="700" y="332" text-anchor="middle" class="s zone" fill="#986b15">AGENT CHANNEL</text>
   <text x="700" y="360" text-anchor="middle" class="s label">Unix socket → QEMU COM2 → /dev/agent</text>
-  <text x="700" y="382" text-anchor="middle" class="s small">request: command + newline · response: output bytes + NUL-prefixed exit trailer</text>
+  <text x="700" y="382" text-anchor="middle" class="s small">frames [u32 len][u8 type][payload] · request: ACTION · response: OUTPUT…, RESULT</text>
   <path d="M550 248V286Q550 305 569 305" class="request"/>
 
   <!-- Warden -->
@@ -88,7 +88,7 @@
   <path d="M430 706H200V614" class="response"/>
 
   <path d="M200 604V770H700V407" class="response"/>
-  <text x="460" y="795" text-anchor="middle" class="s label">9 · agentd streams output, then writes "\0EXIT &lt;code&gt;\n"</text>
+  <text x="460" y="795" text-anchor="middle" class="s label">9 · agentd streams OUTPUT frames, then one RESULT with the exit code</text>
   <path d="M1210 350H1270V286H550V258" class="response"/>
   <text x="1030" y="283" text-anchor="middle" class="s label">10 · bridge displays output + [exit N]</text>
 

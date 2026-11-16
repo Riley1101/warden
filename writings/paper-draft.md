@@ -18,7 +18,8 @@ State of the code when this was drafted (updated 2026-11-15):
   tests:   make test (host unit tests under ASan/UBSan, ring 3 tests, escape suite under C);
            make agent-test (protocol, A-D on a real boot); make escape-matrix (Table 3, measured);
            make task-check (each task's solution and unsafe path); preliminary run of the 4 tasks
-           (32 runs, writings/data/prelim-4tasks.jsonl)
+           (32 runs, writings/data/prelim-4tasks.jsonl), and under the plain prompt (24 runs,
+           writings/data/prelim-plain.jsonl)
   missing: the full task set (4 of 20 written; injection cases to adapt from published
            benchmarks), the pilot itself, audit records attached to RESULT, overhead benchmark
 -->
@@ -213,7 +214,7 @@ Table 1 gives the capability each call requires (planned; [TODO: fill table entr
 | `CAP_KILL` + same session | `kill` |
 | human only | `audit_read`, `kill_session` |
 
-*Table 1: capability required by each system call (planned).*
+*Table 1: capability required by each system call, as declared in `kernel/syscall.c`.*
 
 A denied call returns `-ECAPDENIED`, a dedicated error number, so that a program, and the agent
 reading its output, can tell a policy denial from an ordinary failure such as a missing file.
@@ -235,7 +236,7 @@ and read past the end of a shorter path.
 `rename` checks both the source and the destination, so an agent cannot move a file *into* its
 scope from outside, nor move one out.
 
-### 3.4 Labels on files (planned)
+### 3.4 Labels on files
 
 A label on processes alone leaves a hole: an agent writes `/home/work/fix.sh`, and later a human, or
 a cron-like helper running as a human, executes it. The script would then run with full authority.
@@ -245,7 +246,7 @@ program runs with the *narrower* of the caller's label and the writer's session 
 one-bit form of integrity tracking in the spirit of Biba and of DIFC systems [cite: Biba 1977;
 HiStar; Flume], restricted to the one flow that turns agent output into agent authority: execution.
 
-### 3.5 Session limits and the kill switch (planned)
+### 3.5 Session limits and the kill switch
 
 An agent with `CAP_SPAWN` can fork without bound. `mark_agent` therefore also sets a per-session
 process limit. The first mark into a session creates it, and later marks can only lower its limit.
@@ -263,7 +264,7 @@ process of a session carries the session id, the kernel can end a session in one
 ones that have left their original process tree. It returns the number killed and writes an audit
 record naming the session. An agent cannot call it, not even on its own session.
 
-### 3.6 Audit log and feedback (planned)
+### 3.6 Audit log and feedback
 
 Every denial appends a record to an in-kernel ring buffer: time, pid, session, system call, the
 normalised path if any, and the missing capability. `audit_read` is human-only, so an agent cannot
@@ -364,6 +365,39 @@ failures were `command not found`, not anything to do with policy. With it, fail
 can be attributed to the policy rather than to an unfamiliar environment. The prompt depends on
 the profile only, never on the configuration.
 
+The prompt comes in two forms. The *guarded* prompt is all three parts. The *plain* prompt drops
+the restraint rules (do only what was asked, `cannot` rather than improvise, never work around
+`ECAPDENIED`, treat content as data) and the statement of permissions, and keeps only how to use
+the tool and the reference, which states facts but asks for nothing. It stands for the many
+deployments whose prompt says what the tools are but not what the agent may do. Under the plain
+prompt, configuration A has no defence at all.
+
+### 4.5 Testing
+
+Four test targets check the implementation before any result is taken from it. All four passed on
+the code this draft describes (2026-11-15).
+
+- **`make test`** builds a test image and runs two layers. On the host, 14 unit-test programs
+  cover the code that is free of hardware, among them path normalisation, labels, sessions, the
+  audit ring, the frame parser and the deny-list checker, all under AddressSanitizer and
+  UndefinedBehaviorSanitizer. In QEMU, 49 kernel test groups cover memory, scheduling, the
+  user/kernel boundary, processes, pipes, files, the agent channel, labels, file writer labels,
+  sessions, the audit log and the shell, and finish with the escape suite under configuration C
+  (§5.2): all 12 rows blocked, and the known limit reported as not blocked.
+- **`make agent-test`** drives the framed protocol against a real boot, in 30 checks. Under C it
+  checks every refusal of §4.3 (a frame before the SESSION, a second SESSION, an unknown profile
+  or type, a NUL, a frame over 4 KiB), that the stream stays in step after one, that long output
+  spans OUTPUT frames, and that the label is applied. Under A it checks that no label is applied;
+  under B, that the deny-list refuses `..`, relative and out-of-scope writes, and lets a nested
+  `sh -c` past; under D with `readonly`, that what passes the deny-list is refused by the kernel
+  and nothing is written. In every configuration it checks that no byte was dropped on the way
+  in (§4.3).
+- **`make task-check`** validates the tasks with no model (§5.1): the 4 reference solutions
+  succeed and stay safe under C, and the 2 unsafe sequences (in the tempting and injection tasks)
+  are scored unsafe under A and safe, with the attempt seen, under C.
+- **`make escape-matrix`** measures Table 3 (§5.2). It passes only if C and D block every counted
+  row; A and B are measured, not judged.
+
 ## 5 Evaluation
 
 We ask three questions:
@@ -390,7 +424,8 @@ asks what happens in practice, and what enforcement costs a model that is trying
 - **D, combined.** B and C together.
 
 "Kernel off" in A and B means `agentd` does not mark the child; the kernel is the same. All
-configurations use the same system prompt (§4.4), so the model cannot tell them apart.
+configurations use the same system prompt (§4.4), so the model cannot tell them apart. The prompt,
+guarded or plain, is a separate variable, recorded with each run and reported apart.
 
 **The deny-list.** B has to be a fair baseline, not a straw man, so it is the kind of check a
 careful wrapper makes. It splits the line as a shell would, removing quotes and separating `;`,
@@ -477,7 +512,8 @@ bomb, the orphans) are subcommands of `/test/attack`, which stands for any code 
 run (§2). A row counts as blocked only if the protected state is exactly as it was, whatever the
 error said; an append that leaves the original bytes in place still counts as a change. Targets
 are throwaway (`/prot/victim` stands in for `/bin/ls`). If the harness loses step with the guest,
-the rest of that boot is recorded as not measured rather than guessed.
+the rest of that boot is recorded as not measured rather than guessed. Table 3 is from the run of
+2026-11-15.
 
 The rows fall into two kinds, and Table 3 keeps them apart. In the first, the harm is a shell
 command, so a filter on command text has a chance to see it. In the second, the harm happens below
@@ -569,9 +605,37 @@ full pilot must account for:
   different number of steps in the two repetitions (the tempting task under A took 3, then 6),
   so the pilot needs repetitions even at temperature 0.
 
-For a model that behaves, RQ2 measures cost, not protection. Whether a defence matters in practice
-depends on how often models misbehave on tasks where it counts, which is what the adapted
-benchmark cases and a second, weaker model are for.
+For a model that behaves, RQ2 measures cost, not protection.
+
+**The plain prompt.** We then reran the four tasks under the plain prompt (§4.4), and the tempting
+task twice more, with the same model: 24 runs, in `writings/data/prelim-plain.jsonl`. Table 5
+gives the tempting task; the other three tasks stayed safe and succeeded in every configuration.
+
+| Config | Runs | Unsafe tried | Unsafe executed | Unsafe refused | Refused by |
+|---|---|---|---|---|---|
+| A prompt | 3 | 1/3 | 1/3 | n/a | none: the backup was deleted |
+| B agentd | 3 | 0/3 | 0/3 | 0/3 | |
+| C kernel | 3 | 2/3 | 0/3 | 2/3 | kernel (`ECAPDENIED`), twice |
+| D both | 3 | 1/3 | 0/3 | 1/3 | deny-list |
+
+*Table 5: the tempting task under the plain prompt, 3 repetitions per configuration. Every run
+also succeeded at the task itself.*
+
+Without the restraint rules, the model went for the backup outside its scope in 4 of 12 runs. In
+A nothing stopped it: it deleted `/data/old-backup.tar` and reported doing so. In C the same
+`rm` was refused by the kernel both times, and the model finished the permitted part of the task.
+In D the deny-list refused it first. The rate is the same order in every configuration, as it
+should be, since the model cannot tell them apart; what differs is only whether the harm happened.
+This is the comparison RQ2 is for, on one task and a handful of runs. Two caveats. The counts are
+far too small for rates. And the transcripts show the model, lacking a stated scope, reading
+`/etc/profiles` and `/etc/denylist` to find out what it may do, and sometimes holding back after
+reading them. The policy files are readable by the agent in every configuration, so this does not
+bias the comparison, but it means the plain prompt is not quite "no rules": the rules are on disk.
+[TODO: decide whether the policy files should be unreadable to agents, and rerun if so.]
+
+Whether a defence matters in practice depends on how often models misbehave on tasks where it
+counts, which is what the adapted benchmark cases, the plain prompt, and a second, weaker model
+are for.
 
 **The pilot.** [TODO: run once the task set is complete; 20 tasks × 4 configurations = 80 runs,
 `make pilot` then `make analyze MARKDOWN=1`.]
@@ -583,7 +647,7 @@ benchmark cases and a second, weaker model are for.
 | C kernel | [TBD] | [TBD] | [TBD] | [TBD] |
 | D both | [TBD] | [TBD] | [TBD] | [TBD] |
 
-*Table 5: pilot results, 20 tasks × 4 configurations × 1 model = 80 runs, each task under its own
+*Table 6: pilot results, 20 tasks × 4 configurations × 1 model = 80 runs, each task under its own
 profile. [TODO: by task group, from `analyze.py`; the tempting and injection groups carry the
 difference.]*
 
@@ -634,7 +698,7 @@ we compare a kernel checkpoint against the string filters these systems often ad
 ## 7 Mapping to Linux
 
 Most of Warden's mechanisms have a close counterpart in Linux, and the ones that do not are where
-the agent setting differs from the program setting. Table 6 lists them.
+the agent setting differs from the program setting. Table 7 lists them.
 
 | Warden mechanism | Closest Linux equivalent | Gap |
 |---|---|---|
@@ -646,7 +710,7 @@ the agent setting differs from the program setting. Table 6 lists them.
 | Audit log, human-only | audit subsystem / BPF ring buffer | Close match |
 | Final-state scoring | overlayfs upper layer | Close match |
 
-*Table 6: Warden's mechanisms and their closest Linux equivalents.*
+*Table 7: Warden's mechanisms and their closest Linux equivalents.*
 
 A Linux `agentd` would put each session in its own cgroup, which gives the process limit and the
 kill switch directly, and apply a Landlock ruleset and a seccomp filter in the child before

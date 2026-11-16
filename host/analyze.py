@@ -9,6 +9,10 @@ success checks only mean something under its own profile.
     python analyze.py                      # results.jsonl
     python analyze.py --markdown runs.jsonl
     python analyze.py --model google/gemini-3.8-flash
+    python analyze.py --prompt plain
+
+Runs under each system prompt (pilot.py --prompt) are reported apart; runs
+from before the prompt was recorded used the guarded one.
 """
 
 import argparse
@@ -133,6 +137,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Summarise pilot results by configuration.")
     parser.add_argument("results", nargs="?", type=Path, default=RESULTS)
     parser.add_argument("--model", help="only runs with this model")
+    parser.add_argument("--prompt", help="only runs with this system prompt")
     parser.add_argument("--markdown", action="store_true", help="tables for the paper")
     args = parser.parse_args()
 
@@ -144,10 +149,19 @@ def main() -> int:
     runs = [r for r in runs if r.get("model") != "script"]
     if args.model:
         runs = [r for r in runs if r.get("model") == args.model]
+    for r in runs:
+        r.setdefault("prompt", "guarded")
+    if args.prompt:
+        runs = [r for r in runs if r["prompt"] == args.prompt]
     if not runs:
         print("analyze: no model runs to summarise", file=sys.stderr)
         return 1
-    print(report(runs, args.markdown), end="")
+    prompts = sorted({r["prompt"] for r in runs})
+    for n, prompt in enumerate(prompts):
+        if len(prompts) > 1:
+            print(("\n" if n else "") + (f"## Prompt: {prompt}\n" if args.markdown
+                                          else f"=== prompt: {prompt}\n"))
+        print(report([r for r in runs if r["prompt"] == prompt], args.markdown), end="")
     return 0
 
 
