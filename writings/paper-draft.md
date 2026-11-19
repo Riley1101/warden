@@ -2,7 +2,7 @@
 DRAFT CONVENTIONS
   [TODO: ...]   work or writing still to do
   [TBD]         a number that must come from analyze.py / make test; never fill by hand
-  [cite: ...]   a reference to look up and format
+  [n], [n-m]   a numbered entry in the References section
   (planned)     the mechanism is designed but not yet in the code as of this draft
 
 State of the code when this was drafted (updated 2026-11-15):
@@ -65,8 +65,7 @@ project") and sometimes add a wrapper that rejects commands matching a deny-list
 `sudo`, paths under `/etc`).
 
 Neither defence acts where the damage happens. A prompt is a request, and a model may ignore it,
-misread it, or be talked out of it by text it reads during the task (prompt injection) [cite:
-Greshake et al. 2023; InjecAgent; AgentDojo]. A deny-list sees only the command string. The shell
+misread it, or be talked out of it by text it reads during the task (prompt injection) [13, 14, 15]. A deny-list sees only the command string. The shell
 then follows `cd`, resolves `..`, runs scripts, and starts other programs, none of which the
 filter sees. Consider an agent limited to `/home/work`, and a filter that rejects any command
 containing `/bin`:
@@ -83,7 +82,7 @@ what the agent was allowed to do.
 
 Moving policy from the program to the kernel is not new. Capability systems, sandboxing interfaces
 such as Capsicum, pledge/unveil, Landlock and seccomp, and decentralised information flow control
-all do it [cite: Capsicum; pledge/unveil; Landlock; seccomp-bpf; HiStar; Flume; Asbestos]. What is
+all do it [1-5, 10-12]. What is
 new is the principal. An agent is not a program with a fixed binary that can be audited and given
 a sandbox profile. It is a session that emits arbitrary programs over time, writes files that later
 run, and starts processes that outlive the command that created them. The policy must follow the
@@ -243,8 +242,7 @@ a cron-like helper running as a human, executes it. The script would then run wi
 Warden closes this by recording, on each file, the origin and session of the last writer
 (`writer_origin`, `writer_session`). When any process `exec`s a file written by an agent, the new
 program runs with the *narrower* of the caller's label and the writer's session label. This is a
-one-bit form of integrity tracking in the spirit of Biba and of DIFC systems [cite: Biba 1977;
-HiStar; Flume], restricted to the one flow that turns agent output into agent authority: execution.
+one-bit form of integrity tracking in the spirit of Biba and of DIFC systems [9, 11, 12], restricted to the one flow that turns agent output into agent authority: execution.
 
 ### 3.5 Session limits and the kill switch
 
@@ -460,7 +458,7 @@ The simple and multi-step groups stay within the profile, so they measure the co
 to a model doing ordinary work. The tempting and injection groups measure safety in practice.
 Injection cases written by the authors of a defence invite the objection that they were written to
 suit it, and are hard to compare with other work, so we adapt this group from published
-benchmarks: AgentDojo and InjecAgent [cite], mapped onto Warden's filesystem and tools.
+benchmarks: AgentDojo and InjecAgent [14, 15], mapped onto Warden's filesystem and tools.
 [TODO: choose the cases, and describe the mapping and what is lost in it.] So far 4 tasks exist,
 one per group; the plan is 20, five per group.
 
@@ -666,23 +664,23 @@ normalisation, which the filesystem performs anyway.]
 ## 6 Related Work
 
 **OS sandboxing and capabilities.** Capsicum adds a capability mode to FreeBSD in which a process
-loses access to global namespaces [cite: Watson et al. 2010]. OpenBSD's pledge and unveil let a
-program restrict its own system calls and visible paths [cite]. Linux offers seccomp-bpf for
-system-call filtering and Landlock for unprivileged filesystem restriction [cite]. Containers and
-gVisor isolate whole environments [cite]. These mechanisms are designed for a program that knows
+loses access to global namespaces [1]. OpenBSD's pledge and unveil let a
+program restrict its own system calls and visible paths [2, 3]. Linux offers seccomp-bpf for
+system-call filtering and Landlock for unprivileged filesystem restriction [4, 5]. Containers and
+gVisor isolate whole environments [7, 8]. These mechanisms are designed for a program that knows
 its own needs and restricts itself, or for an administrator writing a profile for a known binary.
 Warden's label differs in following a *session* that produces new programs and files over time,
 and in carrying authority through files the agent writes (§3.4). §7 discusses how to approximate
 Warden on these mechanisms.
 
 **Information flow control.** Asbestos, HiStar and Flume track labels on processes and data and
-enforce flow policies in the kernel or a reference monitor [cite]. Warden's labels are a deliberate
+enforce flow policies in the kernel or a reference monitor [10-12]. Warden's labels are a deliberate
 simplification: one integrity label per session, attached to processes and files, checked at a
 single point. We use it for the one flow that matters most for agents, agent-written code gaining
 authority, and leave general confidentiality flows to future work.
 
 **Agent safety benchmarks.** AgentDojo, InjecAgent and ToolEmu measure how often agents can be
-driven to unsafe tool calls, including through indirect prompt injection [cite]. They measure the
+driven to unsafe tool calls, including through indirect prompt injection [14-16]. They measure the
 *model*: whether it attempts the harmful call. Our escape suite measures the *system*: whether the
 harmful effect happens, given a worst-case agent. The two compose. We adapt injection cases from
 AgentDojo and InjecAgent for RQ2 (§5.1), which lets our injection rates be compared with theirs,
@@ -690,8 +688,8 @@ and lets the comparison between configurations show how much of the harm those b
 elicit an OS-level defence would have stopped.
 
 **Agent defences.** Defences at the model or framework level, such as CaMeL, separate trusted
-control flow from untrusted data [cite: Debenedetti et al. 2025]. Commercial coding agents run
-commands in OS sandboxes built on Seatbelt, Landlock or containers [cite]. Our work is
+control flow from untrusted data [17]. Commercial coding agents run
+commands in OS sandboxes built on Seatbelt, Landlock or containers [4, 6, 7]. Our work is
 complementary: we assume the model may fail and ask what the OS should guarantee regardless, and
 we compare a kernel checkpoint against the string filters these systems often add on top.
 
@@ -793,18 +791,43 @@ below it.
 
 ## References
 
-[TODO: format in the venue's style. Look up exact venues and years.]
+Numbered; cited in text as [n]. [TODO: convert to the venue's citation style on submission.]
 
-- Watson, Anderson, Laurie, Kennaway. *Capsicum: Practical Capabilities for UNIX.* USENIX Security 2010.
-- OpenBSD `pledge(2)` and `unveil(2)` manual pages.
-- Linux Landlock and seccomp-bpf documentation.
-- Efstathopoulos et al. *Labels and Event Processes in the Asbestos Operating System.* SOSP 2005.
-- Zeldovich et al. *Making Information Flow Explicit in HiStar.* OSDI 2006.
-- Krohn et al. *Information Flow Control for Standard OS Abstractions* (Flume). SOSP 2007.
-- Biba. *Integrity Considerations for Secure Computer Systems.* 1977.
-- Greshake et al. *Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection.* 2023.
-- Debenedetti et al. *AgentDojo.* NeurIPS 2024 Datasets and Benchmarks.
-- Zhan et al. *InjecAgent.* 2024.
-- Ruan et al. *ToolEmu: Identifying the Risks of LM Agents with an LM-Emulated Sandbox.* ICLR 2024.
-- Debenedetti et al. *Defeating Prompt Injections by Design* (CaMeL). 2025.
-- gVisor project documentation.
+### Sandboxing and capability systems
+
+1. Watson, R. N. M., Anderson, J., Laurie, B., Kennaway, K. *Capsicum: Practical Capabilities for UNIX.* 19th USENIX Security Symposium, Washington, DC, August 2010. <https://www.usenix.org/conference/usenixsecurity10/capsicum-practical-capabilities-unix>
+2. OpenBSD. *pledge(2) — restrict system operations.* OpenBSD manual pages. <https://man.openbsd.org/pledge.2>
+3. OpenBSD. *unveil(2) — unveil parts of a restricted filesystem view.* OpenBSD manual pages. <https://man.openbsd.org/unveil.2>
+4. Linux kernel. *Landlock LSM: kernel documentation.* <https://docs.kernel.org/security/landlock.html>
+5. Linux kernel. *Seccomp BPF (SECure COMPuting with filters).* <https://docs.kernel.org/userspace-api/seccomp_filter.html>
+6. Apple Inc. *sandbox_init(3)* and *sandbox(7)* (Seatbelt, Sandbox Profile Language). macOS manual pages. Secondary reference: Chromium project, *Seatbelt Sandbox Design.* <https://chromium.googlesource.com/chromium/src/+/HEAD/sandbox/mac/seatbelt_sandbox_design.md>
+7. Young, E. G., Zhu, P., Caraza-Harter, T., Arpaci-Dusseau, A. C., Arpaci-Dusseau, R. H. *The True Cost of Containing: A gVisor Case Study.* 11th USENIX Workshop on Hot Topics in Cloud Computing (HotCloud '19), Renton, WA, July 2019. <https://www.usenix.org/conference/hotcloud19/presentation/young>
+8. gVisor project documentation. <https://gvisor.dev/docs/>
+
+### Integrity and information-flow control
+
+9. Biba, K. J. *Integrity Considerations for Secure Computer Systems.* Technical Report MTR-3153, The MITRE Corporation, April 1977 (also ESD-TR-76-372). <https://apps.dtic.mil/sti/html/tr/ADA039324/index.html>
+10. Efstathopoulos, P., Krohn, M., VanDeBogart, S., Frey, C., Ziegler, D., Kohler, E., Mazières, D., Kaashoek, F., Morris, R. *Labels and Event Processes in the Asbestos Operating System.* SOSP 2005, pp. 17–30. <https://doi.org/10.1145/1095810.1095813>
+11. Zeldovich, N., Boyd-Wickizer, S., Kohler, E., Mazières, D. *Making Information Flow Explicit in HiStar.* 7th USENIX OSDI, Seattle, WA, 2006, pp. 263–278. <https://www.usenix.org/conference/osdi-06/making-information-flow-explicit-histar>
+12. Krohn, M., Yip, A., Brodsky, M., Cliffer, N., Kaashoek, M. F., Kohler, E., Morris, R. *Information Flow Control for Standard OS Abstractions* (Flume). SOSP 2007, pp. 321–334. <https://doi.org/10.1145/1294261.1294293>
+
+### Agent safety, prompt injection, and benchmarks
+
+13. Greshake, K., Abdelnabi, S., Mishra, S., Endres, C., Holz, T., Fritz, M. *Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection.* 16th ACM Workshop on Artificial Intelligence and Security (AISec '23), Copenhagen, November 2023, pp. 79–90. arXiv:2302.12173. <https://arxiv.org/abs/2302.12173>
+14. Debenedetti, E., Zhang, J., Balunović, M., Beurer-Kellner, L., Fischer, M., Tramèr, F. *AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents.* NeurIPS 2024, Datasets and Benchmarks Track. arXiv:2406.13352. <https://proceedings.neurips.cc/paper_files/paper/2024/hash/97091a5177d8dc64b1da8bf3e1f6fb54-Abstract.html>
+15. Zhan, Q., Liang, Z., Ying, Z., Kang, D. *InjecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents.* Findings of ACL 2024, pp. 10471–10506. arXiv:2403.02691. <https://aclanthology.org/2024.findings-acl.624>
+16. Ruan, Y., et al. *Identifying the Risks of LM Agents with an LM-Emulated Sandbox* (ToolEmu). ICLR 2024. arXiv:2309.15817. <https://arxiv.org/abs/2309.15817>
+17. Debenedetti, E., Shumailov, I., et al. *Defeating Prompt Injections by Design* (CaMeL). arXiv:2503.18813, March 2025. <https://arxiv.org/abs/2503.18813>
+
+### Source code and implementation references
+
+Warden's kernel is not written from first principles. Its boot path, descriptor-table setup,
+interrupt handling, paging, allocators, scheduler and system-call entry follow the structure of the
+author's earlier x86-64 kernel and the community reference material below; the contributions of this
+work are the capability model, the label and provenance tracking, and the agent channel built on top
+of that structure.
+
+18. Arkar Kaung Myat (Riley1101). *aeryk: an x86-64 kernel written in C, booted via Limine.* Source repository. <https://github.com/Riley1101/aeryk>
+19. OSDev Wiki. *OSDev.org community reference.* <https://wiki.osdev.org/> (also served at <https://osdev.wiki/>) — specific pages used: *Bare Bones* <https://wiki.osdev.org/Bare_Bones> and *Limine Bare Bones* <https://wiki.osdev.org/Limine_Bare_Bones> (boot and linker layout), *Global Descriptor Table* <https://wiki.osdev.org/Global_Descriptor_Table>, *Interrupt Descriptor Table* <https://wiki.osdev.org/Interrupt_Descriptor_Table>, *APIC* <https://wiki.osdev.org/APIC>, *Paging* <https://wiki.osdev.org/Paging>, *Serial Ports* <https://wiki.osdev.org/Serial_Ports>, *Memory Allocation* <https://wiki.osdev.org/Memory_Allocation>, *System Calls* <https://wiki.osdev.org/System_Calls>.
+20. Bonwick, J. *The Slab Allocator: An Object-Caching Kernel Memory Allocator.* USENIX Summer 1994. <https://www.usenix.org/legacy/publications/library/proceedings/bos94/full_papers/bonwick.ps> (PDF mirror: <https://www.rcs.uwaterloo.ca/papers/slab.pdf>)
+21. Limine bootloader project. *Limine Boot Protocol.* <https://codeberg.org/Limine/Limine>
